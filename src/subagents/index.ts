@@ -582,6 +582,18 @@ export function getTerminalAssistantSummaryForTest(
 	return null;
 }
 
+function shouldReapStableTerminalSummary(
+	running: Pick<RunningSubagent, "autoExit">,
+): boolean {
+	return running.autoExit === true;
+}
+
+export function shouldReapStableTerminalSummaryForTest(
+	running: Pick<RunningSubagent, "autoExit">,
+): boolean {
+	return shouldReapStableTerminalSummary(running);
+}
+
 function muxUnavailableResult(kind: "subagents" | "tab-title" = "subagents") {
 	if (kind === "tab-title") {
 		return {
@@ -2674,6 +2686,7 @@ function watchBackgroundSubagent(
 				running.entries = getEntryCount(running.sessionFile);
 				running.bytes = stat.size;
 				if (running.noSession) return;
+				if (!shouldReapStableTerminalSummary(running)) return;
 				const summary = getTerminalAssistantSummaryForTest(
 					getEntries(running.sessionFile) as SessionEntryLike[],
 				);

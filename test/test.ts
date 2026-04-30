@@ -96,6 +96,7 @@ import {
   waitForSubagentForTest,
   writeSystemPromptArtifactForTest,
   getTerminalAssistantSummaryForTest,
+  shouldReapStableTerminalSummaryForTest,
 } from "../src/subagents/index.ts";
 import {
   getArtifactProjectName,
@@ -2392,6 +2393,12 @@ describe("subagents/index.ts helpers", () => {
       ] as any[]),
       null,
     );
+  });
+
+  it("only reaps stable terminal summaries for auto-exit background agents", () => {
+    assert.equal(shouldReapStableTerminalSummaryForTest({ autoExit: true }), true);
+    assert.equal(shouldReapStableTerminalSummaryForTest({ autoExit: false }), false);
+    assert.equal(shouldReapStableTerminalSummaryForTest({}), false);
   });
 
   it("builds deterministic child session titles", () => {
