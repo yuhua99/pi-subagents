@@ -11,7 +11,7 @@ import type {
 	WidgetTuiLike,
 } from "./runtime-types.ts";
 
-const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+const SPINNER = ["◜", "◠", "◝", "◞", "◡", "◟"];
 const TOOL_DISPLAY: Record<string, string> = {
 	read: "reading",
 	bash: "running command",

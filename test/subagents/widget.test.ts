@@ -38,7 +38,8 @@ describe("widget manager direct module tests", () => {
     const lines = widget.renderForTest(120).join("\n");
 
     assert.match(lines, /Agents 1\/1 running · 1\.5s/);
-    assert.match(lines, /Research \[researcher\]/);
+    assert.match(lines, /└─ ◜ Research \[researcher\]/);
+    assert.doesNotMatch(lines, /└─ [-\\|/] Research \[researcher\]/);
     assert.match(lines, /1 tool use/);
     assert.doesNotMatch(lines, /3 messages/);
     assert.match(lines, /Auth session review/);
