@@ -1,4 +1,5 @@
 import type {
+	AgentToolResult,
 	ExtensionAPI,
 	ExtensionContext,
 } from "@mariozechner/pi-coding-agent";
@@ -711,7 +712,35 @@ function initializeModuleReloadState(): AbortController {
 	return controller;
 }
 
+type SubagentToolResult = AgentToolResult<unknown> & { terminate?: true };
+
+function asSubagentToolResult(result: unknown): SubagentToolResult {
+	return result as SubagentToolResult;
+}
+
 const moduleAbortController = initializeModuleReloadState();
+let stopAfterCurrentSubagentBatch = false;
+
+function resetSubagentBatchStopRequest(): void {
+	stopAfterCurrentSubagentBatch = false;
+}
+
+function requestSubagentBatchStop(): void {
+	stopAfterCurrentSubagentBatch = true;
+}
+
+function getSubagentBatchStopMetadata(): { terminate?: true } {
+	return stopAfterCurrentSubagentBatch ? { terminate: true } : {};
+}
+
+function withSubagentBatchStop<T extends AgentToolResult<unknown>>(
+	result: T,
+): T & { terminate?: true } {
+	return {
+		...result,
+		...getSubagentBatchStopMetadata(),
+	};
+}
 
 function getModuleAbortSignal(): AbortSignal {
 	return moduleAbortController.signal;
@@ -724,48 +753,6 @@ let pendingAmbientCatalogReminder: {
 	entries: SubagentCatalogEntry[];
 	supersedes?: true;
 } | null = null;
-
-let detachedLaunchGuardActive = false;
-
-function isDetachedLaunchGuardDisabled(): boolean {
-	return process.env.PI_SUBAGENT_DISABLE_COORDINATOR_ONLY_TURN === "1";
-}
-
-function resetDetachedLaunchGuard(): void {
-	detachedLaunchGuardActive = false;
-}
-
-function isNonBlockingSyncProbe(toolName: string, input: unknown): boolean {
-	if (toolName !== "subagent_wait" && toolName !== "subagent_join") return false;
-	if (!input || typeof input !== "object") return false;
-	const params = input as { timeout?: unknown; onTimeout?: unknown };
-	if (typeof params.timeout !== "number" || params.timeout <= 0) return false;
-	if (toolName === "subagent_wait") {
-		return params.onTimeout === "return_pending" || params.onTimeout === "detach" || params.onTimeout === "return";
-	}
-	return params.onTimeout === "return_partial" || params.onTimeout === "detach" || params.onTimeout === "return";
-}
-
-function isPostDetachedCoordinationTool(toolName: string, input: unknown): boolean {
-	if (toolName === "subagent") return true;
-	if (toolName === "subagent_detach" || toolName === "subagent_kill" || toolName === "subagent_resume") return true;
-	if (toolName === "subagents_list") return true;
-	if (toolName === "ask_user_question") return true;
-	return isNonBlockingSyncProbe(toolName, input);
-}
-
-function getDetachedLaunchBlockReason(toolName: string): string {
-	const waitHint = toolName === "subagent_wait" || toolName === "subagent_join"
-		? ` Do not wait for async children by default; only use ${toolName} here with a short timeout and non-blocking onTimeout behavior, or when the user explicitly requested a sync gate.`
-		: "";
-	return (
-		`An async subagent was launched in this response. ` +
-		`Do not call ${toolName} in the same response or redo delegated work with Pi built-in implementation tools such as bash, read, edit, or write. ` +
-		`Launch more independent subagents, ask the user if ownership is ambiguous, or end this response now and let async results arrive by steer. ` +
-		`Pi built-in implementation tools can resume on the next response or after an explicit sync gate.` +
-		waitHint
-	);
-}
 
 export function getCompletedSubagentResultForTest(
 	id: string,
@@ -782,6 +769,7 @@ export function resetSubagentStateForTest(): void {
 	}
 	runningSubagents.clear();
 	completedSubagentResults.clear();
+	resetSubagentBatchStopRequest();
 	widgetManager.reset();
 }
 
@@ -1497,6 +1485,7 @@ function getStartedSubagentDetails(running: RunningSubagent) {
 
 function getStartedSubagentResult(running: RunningSubagent) {
 	const isAsync = running.async ?? !(running.blocking ?? false);
+	if (isAsync) requestSubagentBatchStop();
 	return {
 		content: [
 			{
@@ -1510,15 +1499,17 @@ function getStartedSubagentResult(running: RunningSubagent) {
 			},
 		],
 		details: getStartedSubagentDetails(running),
+		...getSubagentBatchStopMetadata(),
 	};
 }
 
-function getLaunchedSubagentResult(
+async function getLaunchedSubagentResult(
 	running: RunningSubagent,
 	signal?: AbortSignal,
 ) {
 	if (!running.blocking) return getStartedSubagentResult(running);
-	return waitForSubagentResult({ id: running.id }, signal);
+	const result = await waitForSubagentResult({ id: running.id }, signal);
+	return withSubagentBatchStop(asSubagentToolResult(result));
 }
 
 export function getStartedSubagentDetailsForTest(
@@ -2349,7 +2340,7 @@ export function getSubagentToolDeniedNamesForTest(tools?: string, deniedTools: I
 
 interface SubagentLaunchContext {
 	sessionManager: {
-		getSessionFile(): string | null;
+		getSessionFile(): string | null | undefined;
 		getSessionId(): string;
 	};
 	cwd: string;
@@ -3190,7 +3181,7 @@ export default function subagentsExtension(pi: ExtensionAPI) {
 
 	// Capture the UI context early so the widget keeps a stable slot above tasks.
 	pi.on("session_start", (event, ctx) => {
-		resetDetachedLaunchGuard();
+		resetSubagentBatchStopRequest();
 		applySubagentLineage(ctx);
 		applySubagentSessionTitle(ctx);
 		attachWidgetContext(ctx);
@@ -3246,25 +3237,41 @@ export default function subagentsExtension(pi: ExtensionAPI) {
 		};
 	});
 
-	pi.on("session_switch", (_event, ctx) => {
-		resetDetachedLaunchGuard();
-		attachWidgetContext(ctx);
-	});
-
 	pi.on("input", () => {
-		resetDetachedLaunchGuard();
+		resetSubagentBatchStopRequest();
 		return { action: "continue" as const };
 	});
 
+	pi.on("tool_call", (event) => {
+		if (event.toolName !== "subagent") return {};
+		const input = event.input as Partial<SubagentParamsInput>;
+		const agentDefs = typeof input.agent === "string"
+			? loadAgentDefaults(
+				input.agent,
+				typeof input.cwd === "string" ? input.cwd : undefined,
+			)
+			: null;
+		const agentError = getSubagentAgentRequirementError(input, agentDefs);
+		const agentOverrideError = getSubagentAgentOverrideError(input, agentDefs);
+		if (!agentError && !agentOverrideError && !resolveSubagentBlocking(input, agentDefs)) {
+			requestSubagentBatchStop();
+		}
+		return {};
+	});
+
+	pi.on("turn_start", () => {
+		resetSubagentBatchStopRequest();
+	});
+
 	pi.on("agent_end", () => {
-		resetDetachedLaunchGuard();
+		resetSubagentBatchStopRequest();
 	});
 
 	// Clean up on session shutdown
 	pi.on("session_shutdown", (_event, ctx) => {
 		moduleAbortController.abort();
 		widgetManager.reset();
-		resetDetachedLaunchGuard();
+		resetSubagentBatchStopRequest();
 		shutdownSubagentsForParentExit();
 		if (ctx.hasUI) {
 			ctx.ui.setWidget("subagent-status", undefined);
@@ -3285,54 +3292,6 @@ export default function subagentsExtension(pi: ExtensionAPI) {
 		!isAmbientAwarenessDisabled() &&
 		shouldRegister("subagent");
 
-	pi.on("tool_call", (event) => {
-		if (event.toolName === "subagent") {
-			const input = event.input as Partial<SubagentParamsInput>;
-			const agentDefs = typeof input.agent === "string"
-				? loadAgentDefaults(
-					input.agent,
-					typeof input.cwd === "string" ? input.cwd : undefined,
-				)
-				: null;
-			const agentError = getSubagentAgentRequirementError(input, agentDefs);
-			const agentOverrideError = getSubagentAgentOverrideError(input, agentDefs);
-			if (
-				!isDetachedLaunchGuardDisabled() &&
-				!agentError &&
-				!agentOverrideError &&
-				!resolveSubagentBlocking(input, agentDefs)
-			) {
-				detachedLaunchGuardActive = true;
-			}
-			return {};
-		}
-		if (isDetachedLaunchGuardDisabled() || !detachedLaunchGuardActive) return {};
-		if (isPostDetachedCoordinationTool(event.toolName, event.input)) return {};
-		return {
-			block: true,
-			reason: getDetachedLaunchBlockReason(event.toolName),
-		};
-	});
-
-	pi.on("tool_result", (event) => {
-		const details = event.details as { error?: string; status?: string; blocking?: boolean } | undefined;
-		if (event.toolName === "subagent") {
-			if (!(details?.status === "started" && details.blocking === false)) {
-				resetDetachedLaunchGuard();
-			}
-			return {};
-		}
-		if (
-			(event.toolName === "subagent_wait" ||
-				event.toolName === "subagent_join" ||
-				event.toolName === "subagent_detach") &&
-			!details?.error
-		) {
-			resetDetachedLaunchGuard();
-		}
-		return {};
-	});
-
 	// ── subagent tool ──
 	if (shouldRegister("subagent"))
 		pi.registerTool({
@@ -3351,10 +3310,10 @@ export default function subagentsExtension(pi: ExtensionAPI) {
 				"Interactive agents run in panes; background agents run headlessly; named-agent frontmatter is authoritative for runtime settings, and call-time duplicates for named agents are ignored instead of overriding it. " +
 				"Before calling subagent, translate the user's request into the child task; do not change the work based on the agent name. Use the catalog/list memory label only to decide context: isolated context starts a fresh chat, so write a self-contained task with objective, relevant facts/files, constraints, and expected output; forked context continues this conversation on a new branch, so give goal, boundary, and expected output without re-explaining everything. " +
 				"Handle trivial single-file reads, quick direct answers, and tiny one-shot edits yourself instead of delegating. " +
-				"Delegation ownership rule: after launching subagents, the parent may continue only with explicitly non-overlapping parent-owned work. Do not redo delegated work. If no safe independent work is clear, end the response and let async results arrive by steer. Ask the user only when there is a plausible next step but ownership is ambiguous. Use subagent_wait/subagent_join only for explicit sync gates or short non-blocking status probes. When the coordinator lock is enabled, same-response Pi built-in implementation tools such as bash/read/edit/write are blocked after async launches; set PI_SUBAGENT_DISABLE_COORDINATOR_ONLY_TURN=1 to disable only that hard guard, not this ownership contract.",
+				"Delegation ownership rule: after launching subagents, the parent may continue only with explicitly non-overlapping parent-owned work. Do not redo delegated work. If no safe independent work is clear, end the response and let async results arrive by steer. Ask the user only when there is a plausible next step but ownership is ambiguous. Use subagent_wait/subagent_join only for explicit sync gates or short non-blocking status probes. Async launches request a graceful stop after the current tool batch so results can arrive by steer instead of provoking another autonomous parent continuation.",
 			parameters: SubagentParams,
 
-			async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+			execute: async (_toolCallId, params, signal, _onUpdate, ctx) => {
 				const agentDefs = loadAgentDefaults(params.agent, params.cwd, ctx.cwd);
 				const agentError = getSubagentAgentRequirementError(params, agentDefs);
 				if (agentError) return agentError;
@@ -3508,7 +3467,7 @@ export default function subagentsExtension(pi: ExtensionAPI) {
 
 				if (details?.error) {
 					return new Text(
-						theme.fg("danger", `✗ ${details.error}`),
+						theme.fg("error", `✗ ${details.error}`),
 						0,
 						0,
 					);
@@ -3540,10 +3499,8 @@ export default function subagentsExtension(pi: ExtensionAPI) {
 					);
 				}
 
-				const text =
-					typeof result.content?.[0]?.text === "string"
-						? result.content[0].text
-						: "";
+				const firstContent = result.content?.[0];
+				const text = firstContent?.type === "text" ? firstContent.text : "";
 				return new Text(theme.fg("dim", text), 0, 0);
 			},
 		});
@@ -3560,7 +3517,7 @@ export default function subagentsExtension(pi: ExtensionAPI) {
 			parameters: SubagentWaitParams,
 
 			async execute(_toolCallId, params, signal) {
-				return waitForSubagentResult(params, signal);
+				return asSubagentToolResult(await waitForSubagentResult(params, signal));
 			},
 
 			renderCall(args, theme) {
@@ -3577,7 +3534,7 @@ export default function subagentsExtension(pi: ExtensionAPI) {
 				const details = result.details as SyncSubagentToolDetails | undefined;
 				if (details?.error) {
 					return new Text(
-						theme.fg("danger", `✗ ${details.error}`),
+						theme.fg("error", `✗ ${details.error}`),
 						0,
 						0,
 					);
@@ -3607,7 +3564,7 @@ export default function subagentsExtension(pi: ExtensionAPI) {
 			parameters: SubagentJoinParams,
 
 			async execute(_toolCallId, params, signal) {
-				return joinSubagentResults(params, signal, pi);
+				return asSubagentToolResult(await joinSubagentResults(params, signal, pi));
 			},
 
 			renderCall(args, theme) {
@@ -3625,7 +3582,7 @@ export default function subagentsExtension(pi: ExtensionAPI) {
 				const details = result.details as SyncSubagentToolDetails | undefined;
 				if (details?.error) {
 					return new Text(
-						theme.fg("danger", `✗ ${details.error}`),
+						theme.fg("error", `✗ ${details.error}`),
 						0,
 						0,
 					);
@@ -3656,7 +3613,7 @@ export default function subagentsExtension(pi: ExtensionAPI) {
 			parameters: SubagentDetachParams,
 
 			async execute(_toolCallId, params) {
-				return detachSubagentResult(params, pi);
+				return asSubagentToolResult(await detachSubagentResult(params, pi));
 			},
 
 			renderCall(args, theme) {
@@ -3673,7 +3630,7 @@ export default function subagentsExtension(pi: ExtensionAPI) {
 				const details = result.details as SyncSubagentToolDetails | undefined;
 				if (details?.error) {
 					return new Text(
-						theme.fg("danger", `✗ ${details.error}`),
+						theme.fg("error", `✗ ${details.error}`),
 						0,
 						0,
 					);
@@ -3747,7 +3704,7 @@ export default function subagentsExtension(pi: ExtensionAPI) {
 						a.source === "project"
 							? theme.fg("accent", " (project)")
 							: "";
-					const sessionTag = theme.fg("dim", ` [${getSessionModeMemoryLabel(resolveTaskSessionMode(a))}]`);
+					const sessionTag = theme.fg("dim", ` [${getSessionModeMemoryLabel(resolveTaskSessionMode(a as AgentDefaults))}]`);
 					const desc = a.description
 						? theme.fg("dim", ` — ${a.description}`)
 						: "";
@@ -3767,22 +3724,22 @@ export default function subagentsExtension(pi: ExtensionAPI) {
 			"Stop a running subagent by id or display name. Works for both background and interactive subagents.",
 		parameters: SubagentKillParams,
 
-		async execute(_toolCallId, params) {
+		execute: async (_toolCallId, params) => {
 			const match = findRunningSubagent(params.id);
 			if (!match.running) {
-				return {
+				return asSubagentToolResult({
 					content: [
-						{ type: "text", text: match.error ?? "Subagent not found." },
+						{ type: "text" as const, text: match.error ?? "Subagent not found." },
 					],
 					details: { error: match.error ?? "not found" },
-				};
+				});
 			}
 
 			stopRunningSubagent(match.running);
-			return {
+			return asSubagentToolResult({
 				content: [
 					{
-						type: "text",
+						type: "text" as const,
 						text: `Stopping subagent "${match.running.name}" (${match.running.id}).`,
 					},
 				],
@@ -3791,7 +3748,7 @@ export default function subagentsExtension(pi: ExtensionAPI) {
 					name: match.running.name,
 					status: "stopping",
 				},
-			};
+			});
 		},
 	});
 
@@ -3813,33 +3770,33 @@ export default function subagentsExtension(pi: ExtensionAPI) {
 				}),
 			}),
 
-			async execute(_toolCallId, params) {
+			execute: async (_toolCallId, params) => {
 				if (!isMuxAvailable()) {
-					return muxUnavailableResult("tab-title");
+					return asSubagentToolResult(muxUnavailableResult("tab-title"));
 				}
 				try {
 					renameCurrentTab(params.title);
 					renameWorkspace(params.title);
-					return {
+					return asSubagentToolResult({
 						content: [
 							{
-								type: "text",
+								type: "text" as const,
 								text: `Title set to: ${params.title}`,
 							},
 						],
 						details: { title: params.title },
-					};
+					});
 				} catch (err: unknown) {
 					const errorMessage = err instanceof Error ? err.message : String(err);
-					return {
+					return asSubagentToolResult({
 						content: [
 							{
-								type: "text",
+								type: "text" as const,
 								text: `Failed to set title: ${errorMessage}`,
 							},
 						],
 						details: { error: errorMessage },
-					};
+					});
 				}
 			},
 		});
@@ -3904,10 +3861,8 @@ export default function subagentsExtension(pi: ExtensionAPI) {
 				}
 
 				// Fallback
-				const text =
-					typeof result.content?.[0]?.text === "string"
-						? result.content[0].text
-						: "";
+				const firstContent = result.content?.[0];
+				const text = firstContent?.type === "text" ? firstContent.text : "";
 				return new Text(theme.fg("dim", text), 0, 0);
 			},
 
@@ -4132,6 +4087,7 @@ export default function subagentsExtension(pi: ExtensionAPI) {
 		if (!details) return undefined;
 
 		return {
+			invalidate() {},
 			render(width: number): string[] {
 				const name = details.name ?? "subagent";
 				const exitCode = details.exitCode ?? 0;
@@ -4226,6 +4182,7 @@ export default function subagentsExtension(pi: ExtensionAPI) {
 		if (!details) return undefined;
 
 		return {
+			invalidate() {},
 			render(width: number): string[] {
 				const name = details.name ?? "subagent";
 				const elapsed =
@@ -4257,7 +4214,7 @@ export default function subagentsExtension(pi: ExtensionAPI) {
 					contentLines.push(theme.fg("muted", keyHint("app.tools.expand", "to expand")));
 				}
 
-				const box = new Box(1, 1, (text: string) => theme.bg("toolBg", text));
+				const box = new Box(1, 1, (text: string) => theme.bg("toolPendingBg", text));
 				box.addChild(new Text(contentLines.join("\n"), 0, 0));
 				return ["", ...box.render(width)];
 			},

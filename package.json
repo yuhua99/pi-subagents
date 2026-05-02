@@ -19,7 +19,8 @@
     "test:e2e-live-mix-blocking": "node scripts/test-e2e-live-mix-blocking.mjs",
     "test:e2e-live-deny-tools": "node scripts/test-e2e-live-deny-tools.mjs",
     "test:e2e-live-tools": "node scripts/test-e2e-live-tools.mjs",
-    "test:e2e-live-extensions": "node scripts/test-e2e-live-extensions.mjs"
+    "test:e2e-live-extensions": "node scripts/test-e2e-live-extensions.mjs",
+    "test:e2e-live-stop-after-turn": "node scripts/test-e2e-live-stop-after-turn.mjs"
   },
   "peerDependencies": {
     "@mariozechner/pi-coding-agent": "*",
@@ -27,8 +28,8 @@
     "typebox": "*"
   },
   "devDependencies": {
-    "@mariozechner/pi-coding-agent": "^0.70.0",
-    "@mariozechner/pi-tui": "^0.70.0",
+    "@mariozechner/pi-coding-agent": "^0.72.0",
+    "@mariozechner/pi-tui": "^0.72.0",
     "typebox": "^1.1.33"
   },
   "pi": {

@@ -1571,305 +1571,57 @@ describe("subagents/index.ts helpers", () => {
     assert.match(tool.promptSnippet, /explicitly non-overlapping parent-owned work/);
     assert.match(tool.promptSnippet, /end the response and let async results arrive by steer/);
     assert.match(tool.promptSnippet, /subagent_wait\/subagent_join only for explicit sync gates or short non-blocking status probes/);
-    assert.match(tool.promptSnippet, /Pi built-in implementation tools such as bash\/read\/edit\/write/);
-    assert.match(tool.promptSnippet, /PI_SUBAGENT_DISABLE_COORDINATOR_ONLY_TURN=1/);
+    assert.match(tool.promptSnippet, /Async launches request a graceful stop after the current tool batch/);
   });
 
-  it("blocks immediate parent implementation tools after a detached launch", () => {
-    const dir = createTestDir();
-    const configDir = join(dir, "agent-root");
-    const agentsDir = join(configDir, "agents");
-    mkdirSync(agentsDir, { recursive: true });
-    process.env.PI_CODING_AGENT_DIR = configDir;
-    writeFileSync(
-      join(agentsDir, "scout.md"),
-      `---\nname: scout\nmode: background\nblocking: false\n---\n\nScout body.`,
-    );
+  it("marks async detached launch results as terminating the current tool batch", async () => {
+    const running = {
+      id: "child-terminate",
+      name: "Child",
+      task: "Do work",
+      mode: "background" as const,
+      executionState: "running" as const,
+      deliveryState: "detached" as const,
+      parentClosePolicy: "terminate" as const,
+      blocking: false,
+      async: true,
+      startTime: Date.now(),
+      sessionFile: "/tmp/child-terminate.jsonl",
+    };
 
-    const handlers = new Map<string, any>();
-    try {
-      subagentsExtension({
-        on(event: string, handler: any) {
-          handlers.set(event, handler);
-        },
-        registerCommand() {},
-        registerMessageRenderer() {},
-        sendMessage() {},
-        registerTool() {},
-      } as any);
-
-      handlers.get("tool_call")({
-        type: "tool_call",
-        toolCallId: "call_subagent",
-        toolName: "subagent",
-        input: { name: "Child", agent: "scout", task: "Do work" },
-      });
-      const blocked = handlers.get("tool_call")({
-        type: "tool_call",
-        toolCallId: "call_read",
-        toolName: "read",
-        input: { path: "README.md" },
-      });
-      assert.equal(blocked.block, true);
-      assert.match(blocked.reason, /async subagent was launched in this response/);
-      assert.match(blocked.reason, /Pi built-in implementation tools such as bash, read, edit, or write/);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
+    const result = await getLaunchedSubagentResultForTest(running as any) as any;
+    assert.equal(result.details.status, "started");
+    assert.equal(result.details.blocking, false);
+    assert.equal(result.terminate, true);
   });
 
-  it("allows parent implementation tools after detached launch when scoped guard is disabled", () => {
-    const prev = process.env.PI_SUBAGENT_DISABLE_COORDINATOR_ONLY_TURN;
-    const dir = createTestDir();
-    const configDir = join(dir, "agent-root");
-    const agentsDir = join(configDir, "agents");
-    mkdirSync(agentsDir, { recursive: true });
-    process.env.PI_CODING_AGENT_DIR = configDir;
-    process.env.PI_SUBAGENT_DISABLE_COORDINATOR_ONLY_TURN = "1";
-    writeFileSync(
-      join(agentsDir, "scout.md"),
-      `---\nname: scout\nmode: background\nblocking: false\n---\n\nScout body.`,
-    );
+  it("does not mark sync launch results as terminating the current tool batch", async () => {
+    const running = {
+      id: "child-sync-no-terminate",
+      name: "Child",
+      task: "Do work",
+      mode: "background" as const,
+      executionState: "running" as const,
+      deliveryState: "detached" as const,
+      parentClosePolicy: "terminate" as const,
+      blocking: true,
+      async: false,
+      startTime: Date.now(),
+      sessionFile: "/tmp/child-sync-no-terminate.jsonl",
+      completionPromise: Promise.resolve({
+        name: "Child",
+        task: "Do work",
+        summary: "Done",
+        sessionFile: "/tmp/child-sync-no-terminate.jsonl",
+        exitCode: 0,
+        elapsed: 1,
+      }),
+    };
 
-    const handlers = new Map<string, any>();
-    try {
-      subagentsExtension({
-        on(event: string, handler: any) {
-          handlers.set(event, handler);
-        },
-        registerCommand() {},
-        registerMessageRenderer() {},
-        sendMessage() {},
-        registerTool() {},
-      } as any);
-
-      handlers.get("tool_call")({
-        type: "tool_call",
-        toolCallId: "call_subagent",
-        toolName: "subagent",
-        input: { name: "Child", agent: "scout", task: "Do work" },
-      });
-      const allowed = handlers.get("tool_call")({
-        type: "tool_call",
-        toolCallId: "call_read",
-        toolName: "read",
-        input: { path: "README.md" },
-      });
-      assert.deepEqual(allowed, {});
-    } finally {
-      if (prev == null) delete process.env.PI_SUBAGENT_DISABLE_COORDINATOR_ONLY_TURN;
-      else process.env.PI_SUBAGENT_DISABLE_COORDINATOR_ONLY_TURN = prev;
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
-  it("allows safe coordination tools while the detached-launch guard is active", () => {
-    const dir = createTestDir();
-    const configDir = join(dir, "agent-root");
-    const agentsDir = join(configDir, "agents");
-    mkdirSync(agentsDir, { recursive: true });
-    process.env.PI_CODING_AGENT_DIR = configDir;
-    writeFileSync(
-      join(agentsDir, "scout.md"),
-      `---\nname: scout\nmode: background\nblocking: false\n---\n\nScout body.`,
-    );
-
-    const handlers = new Map<string, any>();
-    try {
-      subagentsExtension({
-        on(event: string, handler: any) {
-          handlers.set(event, handler);
-        },
-        registerCommand() {},
-        registerMessageRenderer() {},
-        sendMessage() {},
-        registerTool() {},
-      } as any);
-
-      handlers.get("tool_call")({
-        type: "tool_call",
-        toolCallId: "call_subagent",
-        toolName: "subagent",
-        input: { name: "Child", agent: "scout", task: "Do work" },
-      });
-      for (const toolName of ["subagent", "subagent_detach", "subagent_kill", "subagent_resume", "subagents_list", "ask_user_question"]) {
-        const allowed = handlers.get("tool_call")({
-          type: "tool_call",
-          toolCallId: `call_${toolName}`,
-          toolName,
-          input: {},
-        });
-        assert.deepEqual(allowed, {});
-      }
-      for (const [toolName, input] of [
-        ["subagent_wait", { id: "Child", timeout: 1, onTimeout: "return_pending" }],
-        ["subagent_join", { ids: ["Child"], timeout: 1, onTimeout: "return_partial" }],
-      ] as const) {
-        const allowed = handlers.get("tool_call")({
-          type: "tool_call",
-          toolCallId: `call_${toolName}`,
-          toolName,
-          input,
-        });
-        assert.deepEqual(allowed, {});
-      }
-      for (const [toolName, input] of [
-        ["subagent_wait", { id: "Child" }],
-        ["subagent_join", { ids: ["Child"] }],
-        ["task_update", {}],
-      ] as const) {
-        const blocked = handlers.get("tool_call")({
-          type: "tool_call",
-          toolCallId: `call_${toolName}`,
-          toolName,
-          input,
-        });
-        assert.equal(blocked.block, true);
-      }
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
-  it("clears the detached-launch guard after a failed subagent launch", () => {
-    const dir = createTestDir();
-    const configDir = join(dir, "agent-root");
-    const agentsDir = join(configDir, "agents");
-    mkdirSync(agentsDir, { recursive: true });
-    process.env.PI_CODING_AGENT_DIR = configDir;
-    writeFileSync(
-      join(agentsDir, "scout.md"),
-      `---\nname: scout\nmode: background\nblocking: false\n---\n\nScout body.`,
-    );
-
-    const handlers = new Map<string, any>();
-    try {
-      subagentsExtension({
-        on(event: string, handler: any) {
-          handlers.set(event, handler);
-        },
-        registerCommand() {},
-        registerMessageRenderer() {},
-        sendMessage() {},
-        registerTool() {},
-      } as any);
-
-      handlers.get("tool_call")({
-        type: "tool_call",
-        toolCallId: "call_subagent",
-        toolName: "subagent",
-        input: { name: "Child", agent: "scout", task: "Do work" },
-      });
-      handlers.get("tool_result")({
-        type: "tool_result",
-        toolCallId: "call_subagent",
-        toolName: "subagent",
-        details: { error: "no session file" },
-      });
-      const allowed = handlers.get("tool_call")({
-        type: "tool_call",
-        toolCallId: "call_read",
-        toolName: "read",
-        input: { path: "README.md" },
-      });
-      assert.deepEqual(allowed, {});
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
-  it("clears the detached-launch guard after validation-like sync failure", () => {
-    const dir = createTestDir();
-    const configDir = join(dir, "agent-root");
-    const agentsDir = join(configDir, "agents");
-    mkdirSync(agentsDir, { recursive: true });
-    process.env.PI_CODING_AGENT_DIR = configDir;
-    writeFileSync(
-      join(agentsDir, "scout.md"),
-      `---\nname: scout\nmode: background\nblocking: false\n---\n\nScout body.`,
-    );
-
-    const handlers = new Map<string, any>();
-    try {
-      subagentsExtension({
-        on(event: string, handler: any) {
-          handlers.set(event, handler);
-        },
-        registerCommand() {},
-        registerMessageRenderer() {},
-        sendMessage() {},
-        registerTool() {},
-      } as any);
-
-      handlers.get("tool_call")({
-        type: "tool_call",
-        toolCallId: "call_subagent",
-        toolName: "subagent",
-        input: { name: "Child", agent: "scout", task: "Do work" },
-      });
-      handlers.get("tool_result")({
-        type: "tool_result",
-        toolCallId: "call_wait",
-        toolName: "subagent_wait",
-        details: {},
-      });
-      const allowed = handlers.get("tool_call")({
-        type: "tool_call",
-        toolCallId: "call_read",
-        toolName: "read",
-        input: { path: "README.md" },
-      });
-      assert.deepEqual(allowed, {});
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
-  it("clears the detached-launch guard after synchronization", () => {
-    const dir = createTestDir();
-    const configDir = join(dir, "agent-root");
-    const agentsDir = join(configDir, "agents");
-    mkdirSync(agentsDir, { recursive: true });
-    process.env.PI_CODING_AGENT_DIR = configDir;
-    writeFileSync(
-      join(agentsDir, "scout.md"),
-      `---\nname: scout\nmode: background\nblocking: false\n---\n\nScout body.`,
-    );
-
-    const handlers = new Map<string, any>();
-    try {
-      subagentsExtension({
-        on(event: string, handler: any) {
-          handlers.set(event, handler);
-        },
-        registerCommand() {},
-        registerMessageRenderer() {},
-        sendMessage() {},
-        registerTool() {},
-      } as any);
-
-      handlers.get("tool_call")({
-        type: "tool_call",
-        toolCallId: "call_subagent",
-        toolName: "subagent",
-        input: { name: "Child", agent: "scout", task: "Do work" },
-      });
-      handlers.get("tool_result")({
-        type: "tool_result",
-        toolCallId: "call_wait",
-        toolName: "subagent_wait",
-        details: { id: "child-guard", name: "Child", status: "completed" },
-      });
-      const allowed = handlers.get("tool_call")({
-        type: "tool_call",
-        toolCallId: "call_read",
-        toolName: "read",
-        input: { path: "README.md" },
-      });
-      assert.deepEqual(allowed, {});
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
+    setRunningSubagentForTest(running as any);
+    const result = await getLaunchedSubagentResultForTest(running as any) as any;
+    assert.equal(result.details.status, "completed");
+    assert.equal(result.terminate, undefined);
   });
 
   it("keeps parent tools available after waiting for detached children", async () => {
@@ -2496,7 +2248,7 @@ describe("subagents/index.ts helpers", () => {
     assert.ok(!JSON.stringify(entries).includes("Use subagent to fork this session"));
   });
 
-  it("returns detached launch metadata and routes completion exactly once via steer", () => {
+  it("returns detached launch metadata and routes completion exactly once via steer", async () => {
     const sent: Array<{ message: any; options: any }> = [];
     const running = {
       id: "child-123",
@@ -2511,7 +2263,7 @@ describe("subagents/index.ts helpers", () => {
       sessionFile: "/tmp/child-session.jsonl",
     };
 
-    const launched = getLaunchedSubagentResultForTest(running) as any;
+    const launched = await getLaunchedSubagentResultForTest(running) as any;
     assert.match(launched.content[0].text, /child-123/);
     assert.match(launched.content[0].text, /subagent_wait\/subagent_join/);
 

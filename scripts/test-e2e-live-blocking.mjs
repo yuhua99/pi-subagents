@@ -7,7 +7,6 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
-  rmSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir, homedir } from "node:os";
@@ -38,7 +37,7 @@ const liveAgentModel = LIVE_TEST_MODEL.split(":")[0];
 const prompt = [
   "The subagent tool is available in this session.",
   "Use exactly this sequence.",
-  'Call subagent with name "Live Blocking Child", agent "live-e2e-blocking", task "Follow your exact built-in instructions.", and parentClosePolicy "terminate".',
+  'Call subagent with name "Live Blocking Child", agent "live-e2e-blocking", title "Live blocking child check", task "Follow your exact built-in instructions.", and parentClosePolicy "terminate".',
   'After the tool returns, reply with exactly "LIVE_E2E_BLOCKING_OK" and nothing else.',
   'Do not call any other tools.',
 ].join(" ");

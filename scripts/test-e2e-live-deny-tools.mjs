@@ -33,7 +33,7 @@ const keepTmp = process.env.PI_SUBAGENT_KEEP_E2E_TMP === "1";
 const prompt = [
   "The subagent tool is available in this session.",
   "Use exactly this sequence.",
-  'Call subagent with name "Live Deny Child", agent "live-e2e-deny", task "Follow your exact built-in instructions.", and parentClosePolicy "terminate".',
+  'Call subagent with name "Live Deny Child", agent "live-e2e-deny", title "Live deny tools check", task "Follow your exact built-in instructions.", parentClosePolicy "terminate", and async false.',
   'After the tool returns, reply with exactly "LIVE_E2E_DENY_OK" and nothing else.',
   "Do not call any other tools.",
 ].join(" ");
@@ -47,7 +47,7 @@ for (const name of ["auth.json", "settings.json", "models.json", "mcp.json"]) {
 }
 writeFileSync(
   join(configDir, "agents", "live-e2e-deny.md"),
-  `---\nname: live-e2e-deny\ndescription: Live deny-tools smoke test agent.\nthinking: off\nauto-exit: true\nmode: background\nblocking: true\nspawning: false\ndeny-tools: e2e_probe_tool\n---\n\nReply with exactly \`LIVE_DENY_CHILD_OK\`.`,
+  `---\nname: live-e2e-deny\ndescription: Live deny-tools smoke test agent.\nthinking: off\nauto-exit: true\nmode: background\nblocking: true\nspawning: false\nextensions: ${extensionFile}\ndeny-tools: e2e_probe_tool\n---\n\nReply with exactly \`LIVE_DENY_CHILD_OK\`.`,
   "utf8",
 );
 writeFileSync(

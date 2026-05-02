@@ -21,7 +21,7 @@ pi install git:github.com/edxeth/pi-subagents
 ## What it gives pi
 
 - named subagents instead of ad-hoc prompt blobs
-- async execution by default, with same-response coordinator-only guarding
+- async execution by default, with graceful parent turn stops after async launches
 - sync execution when the parent truly needs to wait
 - interactive foreground children and headless background children
 - explicit `wait`, `join`, and `detach` semantics
@@ -206,9 +206,7 @@ Use this for scouts, reviewers, analyzers, and other autonomous workers that do 
 
 After an async launch, the parent should only continue with clearly non-overlapping work. If the next step would duplicate the child’s task, it should stop and wait for the steer result.
 
-With the coordinator guard enabled, same-response Pi implementation tools like `bash`, `read`, `edit`, and `write` are blocked after async launches. More subagent launches, clarification questions, subagent control tools, and short non-blocking wait/join probes are still allowed. Unbounded same-response wait/join is blocked because it turns async work back into sync work.
-
-`PI_SUBAGENT_DISABLE_COORDINATOR_ONLY_TURN=1` disables only that hard guard. The no-duplicate-work rule still applies.
+Successful async launches request graceful tool-batch termination, so Pi returns to the user or waits for steer delivery instead of making another autonomous parent LLM call immediately after the launch.
 
 ## Why the runtime has so many settings
 
@@ -280,7 +278,6 @@ These are the ones worth knowing.
 - `PI_SUBAGENT_MUX` — force the mux backend: `cmux`, `tmux`, `zellij`, or `wezterm`
 - `PI_CODING_AGENT_DIR` — override the global pi agent config root
 - `PI_SUBAGENT_DISABLE_AMBIENT_AWARENESS` — disable the hidden top-level subagent catalog
-- `PI_SUBAGENT_DISABLE_COORDINATOR_ONLY_TURN` — disable the scoped same-response guard after detached launches
 - `PI_SUBAGENT_DISABLE_SESSION_TITLES` — disable automatic child session titles such as `[scout agent] Auth flow reconnaissance`
 - `PI_ARTIFACT_PROJECT_ROOT` — override the artifact history root; layout stays `<root>/<project>/artifacts/<session-id>/...`
 - `PI_SUBAGENT_SHELL_READY_DELAY_MS` — override the interactive shell startup delay before sending a child command (default `500`)
@@ -331,6 +328,7 @@ PI_SUBAGENT_ALLOW_LIVE_WINDOWS=1 npm run test:e2e-live-mix-blocking
 npm run test:e2e-live-deny-tools
 npm run test:e2e-live-tools
 npm run test:e2e-live-extensions
+npm run test:e2e-live-stop-after-turn
 ```
 
 The live tests are intentionally gated so they do not spray terminal windows all over your machine by accident.

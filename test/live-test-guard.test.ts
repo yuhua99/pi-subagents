@@ -6,8 +6,8 @@ import { join } from "node:path";
 
 let releases: Array<() => void> = [];
 let testDir = "";
-let acquireLiveWindowLock;
-let requireLiveWindowOptIn;
+let acquireLiveWindowLock: (scriptName: string) => () => void;
+let requireLiveWindowOptIn: (scriptName: string) => void;
 
 beforeEach(async () => {
   testDir = mkdtempSync(join(tmpdir(), "live-test-guard-"));

@@ -42,7 +42,7 @@ const prompt = [
   "Use exactly this sequence and do not call any other tools.",
   ...cases.map(
     ({ agent }) =>
-      `Call subagent with name "${agent}", agent "${agent}", task "Follow your exact built-in instructions.", and parentClosePolicy "terminate".`,
+      `Call subagent with name "${agent}", agent "${agent}", title "${agent} live tools check", task "Follow your exact built-in instructions.", parentClosePolicy "terminate", and async false.`,
   ),
   'After all subagent tool calls return, reply with exactly "LIVE_E2E_TOOLS_OK" and nothing else.',
 ].join("\n");
@@ -59,7 +59,7 @@ for (const name of ["auth.json", "settings.json", "models.json", "mcp.json"]) {
 function writeAgent(name, toolsLine) {
   writeFileSync(
     join(configDir, "agents", `${name}.md`),
-    `---\nname: ${name}\ndescription: Live tools frontmatter smoke test agent.\nthinking: off\nauto-exit: true\nmode: background\nblocking: true\nspawning: false\n${toolsLine ? `${toolsLine}\n` : ""}---\n\nReply with exactly \`${name.toUpperCase().replaceAll("-", "_")}_OK\`.`,
+    `---\nname: ${name}\ndescription: Live tools frontmatter smoke test agent.\nthinking: off\nauto-exit: true\nmode: background\nblocking: true\nspawning: false\nextensions: ${extensionFile}\n${toolsLine ? `${toolsLine}\n` : ""}---\n\nReply with exactly \`${name.toUpperCase().replaceAll("-", "_")}_OK\`.`,
     "utf8",
   );
 }

@@ -35,8 +35,8 @@ const keepTmp = process.env.PI_SUBAGENT_KEEP_E2E_TMP === "1";
 const prompt = [
   "The subagent tool is available in this session.",
   "Use exactly this sequence.",
-  'Call subagent with name "Live Default Child", agent "live-e2e-ext-default", task "Follow your exact built-in instructions.", and parentClosePolicy "terminate".',
-  'Call subagent with name "Live Allow Child", agent "live-e2e-ext-allow", task "Follow your exact built-in instructions.", and parentClosePolicy "terminate".',
+  'Call subagent with name "Live Default Child", agent "live-e2e-ext-default", title "Live default extension check", task "Follow your exact built-in instructions.", parentClosePolicy "terminate", and async false.',
+  'Call subagent with name "Live Allow Child", agent "live-e2e-ext-allow", title "Live allow extension check", task "Follow your exact built-in instructions.", parentClosePolicy "terminate", and async false.',
   'After both tool calls return, reply with exactly "LIVE_E2E_EXTENSIONS_OK" and nothing else.',
   "Do not call any other tools.",
 ].join(" ");
@@ -52,7 +52,7 @@ for (const name of ["auth.json", "settings.json", "models.json", "mcp.json"]) {
 
 writeFileSync(
   join(agentsDir, "live-e2e-ext-default.md"),
-  `---\nname: live-e2e-ext-default\ndescription: Live extensions default-load smoke test agent.\nthinking: high\nauto-exit: true\nmode: background\nblocking: true\nspawning: false\n---\n\nFirst call \`allowed_probe_tool\`.\nThen call \`blocked_probe_tool\`.\nThen reply with exactly \`LIVE_EXT_DEFAULT_OK\`.`,
+  `---\nname: live-e2e-ext-default\ndescription: Live extensions default-load smoke test agent.\nthinking: high\nauto-exit: true\nmode: background\nblocking: true\nspawning: false\nextensions: ${allowedExtensionFile}, ${blockedExtensionFile}\n---\n\nFirst call \`allowed_probe_tool\`.\nThen call \`blocked_probe_tool\`.\nThen reply with exactly \`LIVE_EXT_DEFAULT_OK\`.`,
   "utf8",
 );
 writeFileSync(
