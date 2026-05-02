@@ -7,6 +7,10 @@ import { tmpdir } from "node:os";
 import { SubagentWidgetManager } from "../../src/subagents/widget.ts";
 import type { RunningSubagent } from "../../src/subagents/runtime-types.ts";
 
+function stripAnsi(text: string): string {
+  return text.replace(/\u001b\[[0-9;]*m/g, "");
+}
+
 describe("widget manager direct module tests", () => {
   it("renders nothing when no subagents are running", () => {
     const widget = new SubagentWidgetManager(() => []);
@@ -37,8 +41,8 @@ describe("widget manager direct module tests", () => {
     const widget = new SubagentWidgetManager(() => [running]);
     const lines = widget.renderForTest(120).join("\n");
 
-    assert.match(lines, /Agents 1\/1 running · 1\.5s/);
-    assert.match(lines, /└─ ◜ Research \[researcher\]/);
+    assert.match(lines, /^ ● Agents 1\/1 running · 1\.5s/m);
+    assert.match(lines, /^ └─ ◜ Research \[researcher\]/m);
     assert.doesNotMatch(lines, /└─ [-\\|/] Research \[researcher\]/);
     assert.match(lines, /1 tool use/);
     assert.doesNotMatch(lines, /3 messages/);
@@ -46,6 +50,32 @@ describe("widget manager direct module tests", () => {
     assert.doesNotMatch(lines, /return a concise report/);
     assert.match(lines, /reading auth module/);
     assert.doesNotMatch(lines, /\[detached\]/);
+  });
+
+  it("insets widget lines without exceeding the terminal width", () => {
+    const running: RunningSubagent = {
+      id: "child-1",
+      name: "Research",
+      agent: "researcher",
+      task: "Inspect a module with a deliberately long description for truncation.",
+      title: "A deliberately long title that should be truncated inside padded width",
+      mode: "background",
+      executionState: "running",
+      deliveryState: "detached",
+      parentClosePolicy: "terminate",
+      blocking: false,
+      async: true,
+      startTime: Date.now(),
+      sessionFile: "/tmp/child-1.jsonl",
+      activity: "reading a very long module path and summarizing relevant details",
+    };
+
+    const widget = new SubagentWidgetManager(() => [running]);
+    const lines = widget.renderForTest(32);
+
+    assert.ok(lines.length > 0);
+    assert.ok(lines.every((line) => line.startsWith(" ")));
+    assert.ok(lines.every((line) => stripAnsi(line).length <= 32));
   });
 
   it("uses native totalTokens and caps ctx at 100%", () => {

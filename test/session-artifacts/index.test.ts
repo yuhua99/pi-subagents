@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import sessionArtifactsExtension from "../../src/session-artifacts/index.ts";
 import { getProjectArtifactsDir, getSessionArtifactDir } from "../../src/shared/artifacts.ts";
 
-function withEnv(env: Record<string, string | undefined>, fn: () => Promise<void> | void) {
+async function withEnv(env: Record<string, string | undefined>, fn: () => Promise<void> | void) {
   const original = new Map<string, string | undefined>();
   for (const [key, value] of Object.entries(env)) {
     original.set(key, process.env[key]);
@@ -21,7 +21,11 @@ function withEnv(env: Record<string, string | undefined>, fn: () => Promise<void
     }
   };
 
-  return Promise.resolve(fn()).finally(finish);
+  try {
+    await fn();
+  } finally {
+    finish();
+  }
 }
 
 function registerTools() {

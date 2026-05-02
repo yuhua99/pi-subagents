@@ -12,6 +12,7 @@ import type {
 } from "./runtime-types.ts";
 
 const SPINNER = ["◜", "◠", "◝", "◞", "◡", "◟"];
+const WIDGET_HORIZONTAL_PADDING = 1;
 const TOOL_DISPLAY: Record<string, string> = {
 	read: "reading",
 	bash: "running command",
@@ -347,16 +348,13 @@ export class SubagentWidgetManager {
 		const runningCount = agents.filter((agent) => (agent.pendingToolCount ?? 0) > 0).length;
 		const oldestStartTime = Math.min(...agents.map((agent) => agent.startTime));
 		const lines: string[] = [
-			truncateToWidth(
-				theme.fg("accent", "●") +
-					" " +
-					theme.fg("accent", "Agents") +
-					theme.fg(
-						"dim",
-						` ${runningCount}/${agents.length} running · ${formatElapsedMs(oldestStartTime)}`,
-					),
-				width,
-			),
+			theme.fg("accent", "●") +
+				" " +
+				theme.fg("accent", "Agents") +
+				theme.fg(
+					"dim",
+					` ${runningCount}/${agents.length} running · ${formatElapsedMs(oldestStartTime)}`,
+				),
 		];
 
 		for (let i = 0; i < agents.length; i++) {
@@ -383,30 +381,27 @@ export class SubagentWidgetManager {
 				(stats.length > 0
 					? ` ${theme.fg("dim", "·")} ${theme.fg("dim", stats.join(" · "))}`
 					: "");
-			lines.push(truncateToWidth(header, width));
+			lines.push(header);
 
 			const displayTitle = agent.taskPreview ?? firstNonEmptyLine(agent.title ?? agent.task, 46);
 			if (displayTitle) {
 				lines.push(
-					truncateToWidth(
-						theme.fg("dim", childConnector) +
-							theme.fg("muted", `  ${displayTitle}`),
-						width,
-					),
+					theme.fg("dim", childConnector) +
+						theme.fg("muted", `  ${displayTitle}`),
 				);
 			}
 
 			const activity = agent.activity ?? "starting…";
 			lines.push(
-				truncateToWidth(
-					theme.fg("dim", childConnector) +
-						theme.fg("dim", `  ${activity}`),
-					width,
-				),
+				theme.fg("dim", childConnector) +
+					theme.fg("dim", `  ${activity}`),
 			);
 		}
 
-		return lines;
+		const leftPadding = " ".repeat(Math.min(WIDGET_HORIZONTAL_PADDING, width));
+		const contentWidth = Math.max(0, width - leftPadding.length);
+
+		return lines.map((line) => `${leftPadding}${truncateToWidth(line, contentWidth)}`);
 	}
 
 	private ensureWidgetRegistered(): void {
