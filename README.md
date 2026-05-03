@@ -26,7 +26,7 @@ pi install git:github.com/edxeth/pi-subagents
 - interactive foreground children and headless background children
 - explicit `wait`, `join`, and `detach` semantics
 - resumable child sessions through `caller_ping` and `subagent_resume`
-- session-scoped artifacts for passing reports, notes, and context around
+- child outputs delivered to the parent via final assistant message (plus built-in `write`/`read` for large payloads)
 - frontmatter that controls runtime, not just personality
 - a live widget so you can see what your children are doing
 
@@ -244,40 +244,11 @@ Best when the child needs help from the parent.
 
 A child can stop, send a message upward, and hand back a resumable session file. The parent can answer and resume that exact session later. That gives you a real feedback loop instead of a dead end.
 
-## Session artifacts
+## Child-to-parent output
 
-Subagents can write artifacts into a session-scoped store under pi history.
-Set `PI_ARTIFACT_PROJECT_ROOT` to move that history root somewhere else.
-Artifacts then live at `<root>/<project>/artifacts/<session-id>/...`.
+The child's final assistant message **is** its output. The extension forwards it to the parent via steer — no file writes needed. For very large outputs, use pi's built-in `write` tool with an explicit path and mention the path in the closing message.
 
-This is the clean handoff layer for:
-
-- scouting reports
-- review notes
-- research
-- intermediate context
-- resumable work products
-
-Top-level sessions get `read_artifact`.
-Spawned subagents get both `write_artifact` and `read_artifact`.
-
-The point is simple: if a child produces something structured, it should have a place to put it that is not random repo clutter.
-
-## Session artifacts
-
-Subagents can write artifacts into a session-scoped store under pi history.
-Set `PI_ARTIFACT_PROJECT_ROOT` to move that history root somewhere else.
-Artifacts then live at `<root>/<project>/artifacts/<session-id>/...`.
-
-This is the clean handoff layer for:
-
-- scouting reports
-- review notes
-- research
-- intermediate context
-- resumable work products
-
-The recommended pattern is for child agents to put their findings directly in their final assistant message. The extension forwards that message to the parent via steer — no file writes needed. For very large outputs, child agents can use pi's built-in `write` tool with an explicit path and report the path in their closing message. Agent bodies own the convention, not spawn calls.
+`PI_ARTIFACT_PROJECT_ROOT` sets the internal scratch directory for task delivery files and launch scripts. You don't normally need to touch it.
 
 ## Ambient awareness
 
@@ -298,7 +269,7 @@ These are the ones worth knowing.
 - `PI_SUBAGENT_DISABLE_AMBIENT_AWARENESS` — disable the hidden top-level subagent catalog
 - `PI_SUBAGENT_DISABLE_COORDINATOR_ONLY_TURN` — opt out of the default graceful parent turn stop after async launches; set to `1` only when you want the parent free to continue after spawning children
 - `PI_SUBAGENT_DISABLE_SESSION_TITLES` — disable automatic child session titles such as `[scout agent] Auth flow reconnaissance`
-- `PI_ARTIFACT_PROJECT_ROOT` — override the artifact history root; layout stays `<root>/<project>/artifacts/<session-id>/...`
+- `PI_ARTIFACT_PROJECT_ROOT` — override the internal scratch directory root; default is `~/.pi/history/<project>/artifacts/<session-id>/...`. You don't normally need to touch this.
 - `PI_SUBAGENT_SHELL_READY_DELAY_MS` — override the interactive shell startup delay before sending a child command (default `500`)
 - `PI_SUBAGENT_ENABLE_SET_TAB_TITLE` — opt in to registering the `set_tab_title` tool
 - `PI_SUBAGENT_RENAME_TMUX_WINDOW` — opt in to tmux window renaming
