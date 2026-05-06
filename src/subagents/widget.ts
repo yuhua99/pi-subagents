@@ -345,7 +345,6 @@ export class SubagentWidgetManager {
 
 		const width = tui?.terminal?.columns ?? 80;
 		const spinner = SPINNER[this.widgetFrame % SPINNER.length] ?? "●";
-		const runningCount = agents.filter((agent) => (agent.pendingToolCount ?? 0) > 0).length;
 		const oldestStartTime = Math.min(...agents.map((agent) => agent.startTime));
 		const lines: string[] = [
 			theme.fg("accent", "●") +
@@ -353,7 +352,7 @@ export class SubagentWidgetManager {
 				theme.fg("accent", "Agents") +
 				theme.fg(
 					"dim",
-					` ${runningCount}/${agents.length} running · ${formatElapsedMs(oldestStartTime)}`,
+					` · ${agents.length} running · ${formatElapsedMs(oldestStartTime)}`,
 				),
 		];
 
