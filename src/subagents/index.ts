@@ -43,6 +43,9 @@ import {
 	findLastAssistantMessage,
 } from "./session.ts";
 import {
+	writeTrimmedForkSession,
+} from "./trimmed-session.ts";
+import {
 	getArtifactStorageRoot,
 	getSessionArtifactDir,
 } from "../shared/artifacts.ts";
@@ -1004,13 +1007,27 @@ function seedSubagentSessionFile(
 	parentSessionFile: string,
 	childSessionFile: string,
 	cwd = process.cwd(),
+	/** When provided, trims the forked session to fit within the child's context window. */
+	forkTrimOptions?: { childContextWindow: number; reserveTokens?: number },
 ): void {
 	mkdirSync(dirname(childSessionFile), { recursive: true });
 	if (mode === "lineage-only") return;
 
-	const contentEntries = getForkSeedEntries(parentSessionFile);
-	if (!hasAssistantMessage(contentEntries)) return;
-	writeForkSessionFile(contentEntries, parentSessionFile, childSessionFile, cwd);
+	if (mode === "fork" && forkTrimOptions) {
+		// Use context-window-aware trimming
+		writeTrimmedForkSession(parentSessionFile, childSessionFile, forkTrimOptions);
+		return;
+	}
+
+	if (mode === "fork") {
+		// Fork mode without a resolved model context window is unsafe.
+		// Only the user can fix this by adding a model to the agent definition.
+		// The parent agent cannot proceed — it must abort and inform the user.
+		throw new Error(
+			`Cannot spawn this agent — it needs an explicit model pinned in its definition to safely trim the session context.\n` +
+			`Aborting. Inform the user: add "model: <provider>/<model-id>" to the agent's frontmatter.`,
+		);
+	}
 }
 
 export function seedSubagentSessionFileForTest(
@@ -1018,8 +1035,9 @@ export function seedSubagentSessionFileForTest(
 	parentSessionFile: string,
 	childSessionFile: string,
 	cwd = process.cwd(),
+	forkTrimOptions?: { childContextWindow: number; reserveTokens?: number },
 ) {
-	seedSubagentSessionFile(mode, parentSessionFile, childSessionFile, cwd);
+	seedSubagentSessionFile(mode, parentSessionFile, childSessionFile, cwd, forkTrimOptions);
 }
 
 function resolveEffectiveSessionMode(
@@ -2424,6 +2442,8 @@ interface SubagentLaunchContext {
 		getSessionId(): string;
 	};
 	cwd: string;
+	/** Optional child model context window for fork session trimming. */
+	childModelContextWindow?: number;
 }
 
 interface PreparedSubagentLaunch {
@@ -2732,11 +2752,15 @@ async function launchBackgroundSubagent(
 	const args: string[] = ["-p", ...getPreparedSessionLaunchArgs(prepared), ...getPreparedExtensionLaunchArgs(prepared, subagentDonePath)];
 	const seedMode = noSession ? noSessionSeedMode : sessionMode === "standalone" ? null : sessionMode;
 	if (seedMode) {
+		const forkTrimOptions = seedMode === "fork" && ctx.childModelContextWindow
+			? { childContextWindow: ctx.childModelContextWindow }
+			: undefined;
 		seedSubagentSessionFile(
 			seedMode,
 			prepared.sessionFile,
 			prepared.subagentSessionFile,
 			prepared.runtimePaths.effectiveCwd ?? ctx.cwd,
+			forkTrimOptions,
 		);
 	}
 
@@ -2998,11 +3022,15 @@ async function launchSubagent(
 	const parts: string[] = getPiShellParts(getPreparedSessionLaunchArgs(prepared));
 	const seedMode = noSession ? noSessionSeedMode : sessionMode === "standalone" ? null : sessionMode;
 	if (seedMode) {
+		const forkTrimOptions = seedMode === "fork" && ctx.childModelContextWindow
+			? { childContextWindow: ctx.childModelContextWindow }
+			: undefined;
 		seedSubagentSessionFile(
 			seedMode,
 			prepared.sessionFile,
 			prepared.subagentSessionFile,
 			prepared.runtimePaths.effectiveCwd ?? ctx.cwd,
+			forkTrimOptions,
 		);
 	}
 
@@ -3555,12 +3583,35 @@ export default function subagentsExtension(pi: ExtensionAPI) {
 					effectiveParams.background ??
 					(agentDefs?.mode === "background" ? true : false);
 
+				// Resolve the child model's context window for fork session trimming.
+				// The effective model is: explicit params.model ?? agent frontmatter model.
+				const childModelRef = params.model ?? agentDefs?.model;
+				let childModelContextWindow: number | undefined;
+				if (childModelRef && ctx.modelRegistry) {
+					const slashIdx = childModelRef.indexOf("/");
+					if (slashIdx > 0) {
+						const provider = childModelRef.slice(0, slashIdx);
+						const modelId = childModelRef.slice(slashIdx + 1);
+						// Try with and without thinking suffix
+						const candidates = [modelId, modelId.replace(/:[^:]+$/, "")].filter(Boolean);
+						const model = [...new Set(candidates)]
+							.map((c) => ctx.modelRegistry.find(provider, c))
+							.find(Boolean);
+						childModelContextWindow = model?.contextWindow;
+					}
+				}
+				// Build a properly typed launch context with the optional context window
+				const launchCtx: SubagentLaunchContext = {
+					sessionManager: ctx.sessionManager,
+					cwd: ctx.cwd,
+					childModelContextWindow,
+				};
 
 				let running: RunningSubagent;
 
 				if (isBackground) {
 					// Background mode — no mux required, headless child process
-					running = await launchBackgroundSubagent(effectiveParams, ctx);
+					running = await launchBackgroundSubagent(effectiveParams, launchCtx);
 					const watcherAbort = new AbortController();
 					running.abortController = watcherAbort;
 					running.completionPromise = watchBackgroundSubagent(
@@ -3575,7 +3626,7 @@ export default function subagentsExtension(pi: ExtensionAPI) {
 					if (!isMuxAvailable()) {
 						return muxUnavailableResult("subagents");
 					}
-					running = await launchSubagent(effectiveParams, ctx);
+					running = await launchSubagent(effectiveParams, launchCtx);
 					const watcherAbort = new AbortController();
 					running.abortController = watcherAbort;
 					running.completionPromise = watchSubagent(

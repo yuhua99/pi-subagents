@@ -2446,9 +2446,14 @@ describe("subagents/index.ts helpers", () => {
     const child = join(dir, "child.jsonl");
     writeFileSync(parent, [SESSION_HEADER, MODEL_CHANGE].map((entry) => JSON.stringify(entry)).join("\n") + "\n");
 
-    seedSubagentSessionFileForTest("fork", parent, child, dir);
+    // Fork mode now requires an explicit model context window for safe trimming
+    seedSubagentSessionFileForTest("fork", parent, child, dir, { childContextWindow: 1_000_000 });
 
-    assert.equal(existsSync(child), false);
+    // With no assistant messages, writeTrimmedForkSession writes header-only
+    assert.equal(existsSync(child), true);
+    const content = readFileSync(child, "utf-8");
+    const lines = content.split("\n").filter((l) => l.trim());
+    assert.equal(lines.length, 1, "Should have only a session header");
   });
 
   it("does not treat fork seed assistant messages as child completion output", () => {
