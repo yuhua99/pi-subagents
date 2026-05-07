@@ -1013,20 +1013,12 @@ function seedSubagentSessionFile(
 	mkdirSync(dirname(childSessionFile), { recursive: true });
 	if (mode === "lineage-only") return;
 
-	if (mode === "fork" && forkTrimOptions) {
-		// Use context-window-aware trimming
-		writeTrimmedForkSession(parentSessionFile, childSessionFile, forkTrimOptions);
-		return;
-	}
-
 	if (mode === "fork") {
-		// Fork mode without a resolved model context window is unsafe.
-		// Only the user can fix this by adding a model to the agent definition.
-		// The parent agent cannot proceed — it must abort and inform the user.
-		throw new Error(
-			`Cannot spawn this agent — it needs an explicit model pinned in its definition to safely trim the session context.\n` +
-			`Aborting. Inform the user: add "model: <provider>/<model-id>" to the agent's frontmatter.`,
-		);
+		// Use the provided trim options, or fall back to a default context window
+		// when the agent has a model pinned but the registry doesn't know its size.
+		const options = forkTrimOptions ?? { childContextWindow: 128_000 };
+		writeTrimmedForkSession(parentSessionFile, childSessionFile, options);
+		return;
 	}
 }
 
@@ -1058,6 +1050,42 @@ function resolveTaskSessionMode(agentDefs: AgentDefaults | null): SubagentSessio
 
 export function resolveTaskSessionModeForTest(agentDefs: AgentDefaults | null) {
 	return resolveTaskSessionMode(agentDefs);
+}
+
+/**
+ * Writes the effective extensions list to a companion file next to the child
+ * session file before the subagent spawns. On resume, this is read back to
+ * reconstruct the correct -e args so the resumed child has the same extensions
+ * as the initial run.
+ *
+ * Uses a companion file (childSessionFile + ".ext") instead of writing to the
+ * session file itself, because pi's TUI renderer crashes on custom-type entries
+ * that lack a message field (render.ts tries entry.message.user.input).
+ */
+function writeSubagentExtensionEntry(path: string, extensions: string[] | undefined): void {
+	if (extensions === undefined) return;
+	mkdirSync(dirname(path), { recursive: true });
+	writeFileSync(
+		path + ".ext",
+		JSON.stringify({ extensions, timestamp: new Date().toISOString() }) + "\n",
+	);
+}
+
+/**
+ * Reads the extension list written by writeSubagentExtensionEntry from the
+ * companion file. Returns the extension array or undefined if no file exists.
+ */
+function readSubagentExtensionEntry(path: string): string[] | undefined {
+	try {
+		const extPath = path + ".ext";
+		if (!existsSync(extPath)) return undefined;
+		const content = readFileSync(extPath, "utf8");
+		const entry = JSON.parse(content.trim());
+		if (Array.isArray(entry?.extensions)) return entry.extensions;
+	} catch {
+		// best-effort; fall back to --no-extensions
+	}
+	return undefined;
 }
 
 export function resolveEffectiveSessionModeForTest(
@@ -2763,6 +2791,10 @@ async function launchBackgroundSubagent(
 			forkTrimOptions,
 		);
 	}
+	writeSubagentExtensionEntry(
+		prepared.subagentSessionFile,
+		prepared.effectiveExtensions,
+	);
 
 	const model = getPreparedModel(prepared);
 	if (model) {
@@ -2784,9 +2816,7 @@ async function launchBackgroundSubagent(
 
 	args.push(...getSubagentToolLaunchArgs(prepared.effectiveTools, prepared.denySet));
 
-	const taskArg = directTask
-		? fullTask
-		: `@${writeTaskArtifact(params.name, fullTask, ctx)}`;
+	const taskArg = `@${writeTaskArtifact(params.name, fullTask, ctx)}`;
 	for (const promptArg of buildPiPromptArgs(getPreparedSkillList(prepared), taskArg, directTask)) {
 		args.push(promptArg);
 	}
@@ -3033,6 +3063,10 @@ async function launchSubagent(
 			forkTrimOptions,
 		);
 	}
+	writeSubagentExtensionEntry(
+		prepared.subagentSessionFile,
+		prepared.effectiveExtensions,
+	);
 
 	const subagentDonePath = join(
 		dirname(new URL(import.meta.url).pathname),
@@ -3072,9 +3106,7 @@ async function launchSubagent(
 		.map(([key, value]) => `${key}=${shellEscape(value)}`)
 		.join(" ") + " ";
 
-	const taskArg = directTask
-		? fullTask
-		: `@${writeTaskArtifact(params.name, fullTask, ctx)}`;
+	const taskArg = `@${writeTaskArtifact(params.name, fullTask, ctx)}`;
 	const promptArgs = buildPiPromptArgs(getPreparedSkillList(prepared), taskArg, directTask);
 	const injectTaskAfterStart = prepared.agentDefs?.autoExit !== true;
 	if (!injectTaskAfterStart) {
@@ -4127,10 +4159,13 @@ export default function subagentsExtension(pi: ExtensionAPI) {
 					dirname(new URL(import.meta.url).pathname),
 					"subagent-done.ts",
 				);
-				const extensionArgs = getExtensionLaunchArgs(
-					parseSubagentExtensionList(process.env.PI_SUBAGENT_EXTENSIONS),
-					subagentDonePath,
-				);
+				// Try to load extensions from the session file to match the initial launch.
+				// If no saved extensions found, use --no-extensions (resume children only
+				// need subagent-done.ts for lifecycle management).
+				const savedExtensions = readSubagentExtensionEntry(sessionFile);
+				const extensionArgs = savedExtensions
+					? getExtensionLaunchArgs(savedExtensions, subagentDonePath)
+					: ["--no-extensions", "-e", subagentDonePath];
 				const resumeEnvVars: Record<string, string> = {};
 				if (process.env.PI_CODING_AGENT_DIR) resumeEnvVars.PI_CODING_AGENT_DIR = process.env.PI_CODING_AGENT_DIR;
 				if (process.env.PI_DENY_TOOLS) resumeEnvVars.PI_DENY_TOOLS = process.env.PI_DENY_TOOLS;

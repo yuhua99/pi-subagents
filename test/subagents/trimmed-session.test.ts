@@ -75,8 +75,8 @@ describe("writeTrimmedForkSession", () => {
     const msg2 = JSON.parse(lines[2]);
     assert.equal(msg2.id, "msg-2");
     assert.equal(msg2.message.role, "assistant");
-    // Usage should be stripped to prevent stale metadata
-    assert.equal(msg2.message.usage, undefined, "usage should be stripped from assistant messages");
+    // Usage is replaced with zero stub (compiled binary needs message.usage.input on every entry)
+    assert.deepEqual(msg2.message.usage, { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } });
   });
 
   it("trims oldest turns when the session exceeds budget", () => {
@@ -222,7 +222,7 @@ describe("writeTrimmedForkSession", () => {
     assert.equal(header.type, "session");
   });
 
-  it("preserves non-message entries (model_change, custom_message)", () => {
+  it("preserves non-message entries but guards renderer crash with zero usage", () => {
     const sourcePath = join(tmpDir, "source-non-msg.jsonl");
     const lines = [
       JSON.stringify({ type: "session", version: 3, id: "sess-1", timestamp: "2026-01-01T00:00:00.000Z", cwd: tmpDir }),
@@ -240,8 +240,14 @@ describe("writeTrimmedForkSession", () => {
     const entries = resultLines.map((l) => JSON.parse(l));
 
     const customEntry = entries.find((e) => e.type === "custom_message");
-    assert.ok(customEntry, "custom_message should be preserved");
-    assert.equal(customEntry.customType, "test");
+    assert.ok(customEntry, "custom_message should be preserved (with zero usage guard)");
+    // Every non-session entry must have message.usage.input for the compiled binary's renderer
+    for (const e of entries) {
+      if (e.type === "session") continue;
+      if (e.type === "message" && e.message?.role !== "custom") continue;
+      assert.ok(e.message?.usage?.input !== undefined,
+        `${e.type} entry must have message.usage.input`);
+    }
   });
 
   it("trims via seedSubagentSessionFileForTest when forkTrimOptions is provided", async () => {
@@ -332,7 +338,8 @@ describe("writeTrimmedForkSession", () => {
     // Verify usage is stripped from the assistant message
     const assistantMsg = entries.find((e) => e.type === "message" && e.message?.role === "assistant");
     assert.ok(assistantMsg, "assistant message should exist");
-    assert.equal(assistantMsg.message.usage, undefined, "usage must be stripped to prevent false compaction");
+    assert.deepEqual(assistantMsg.message.usage, { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+      "usage replaced with zero stub to prevent false compaction while keeping renderer alive");
     // Content should be preserved
     assert.equal(assistantMsg.message.content[0].text, "Hi");
     // Non-assistant messages should be untouched

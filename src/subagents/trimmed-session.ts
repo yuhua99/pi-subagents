@@ -82,22 +82,47 @@ function buildSessionHeader(
 }
 
 /**
- * Strip the `usage` field from an assistant message entry.
- * Usage data from the parent session reflects the OLD context size (including
- * portions that may have been trimmed). The child must start fresh; keeping
- * stale usage would cause pi's compaction to overestimate context size.
+ * Serialize a session entry for the child fork.
+ * 
+ * The compiled tia pi binary's usage-summary renderer iterates ALL entries
+ * and accesses entry.message.usage.input without checking the entry type.
+ * To prevent crashes, we ensure every entry has message.usage.input (zero
+ * defaults for non-assistant or non-message entries).
+ *
+ * Assistant usage is stripped to prevent false compaction in the child.
+ * All other entries get zero usage so the renderer survives them, and
+ * entries without a message field get a minimal message stub.
  */
 function serializeEntry(entry: ParsedEntry): string {
-  if (entry.parsed.type !== "message") return entry.line;
-  const msg = entry.parsed.message as Record<string, unknown> | undefined;
-  if (!msg || msg.role !== "assistant") return entry.line;
-  if (!msg.usage) return entry.line;
-
-  // Clone and strip usage
   const parsedClone = structuredClone(entry.parsed);
-  const msgClone = (parsedClone as any).message as Record<string, unknown>;
-  delete msgClone.usage;
-  (parsedClone as any).message = msgClone;
+
+  if (parsedClone.type !== "message") {
+    // Non-message entries (model_change, thinking_level_change, etc.)
+    // must have a message.usage stub so the compiled binary's renderer
+    // doesn't crash when iterating all entries for usage totals.
+    (parsedClone as any).message = {
+      role: "custom",
+      content: [],
+      usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+    };
+    return JSON.stringify(parsedClone);
+  }
+
+  const msg = parsedClone.message as Record<string, unknown> | undefined;
+  if (msg?.role === "assistant" && msg.usage) {
+    // Strip stale usage to prevent false compaction, but keep input:0
+    // so the compiled binary's renderer doesn't crash on message.usage.input.
+    (msg as any).usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } };
+    (parsedClone as any).message = msg;
+    return JSON.stringify(parsedClone);
+  }
+
+  // Add zero usage for non-message entries and user/toolResult messages
+  // that lack usage entirely — the renderer needs message.usage.input on everything.
+  if (msg && !msg.usage) {
+    (msg as any).usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } };
+    (parsedClone as any).message = msg;
+  }
   return JSON.stringify(parsedClone);
 }
 
@@ -204,7 +229,7 @@ export function writeTrimmedForkSession(
   // If no cut was found (unusual — first assistant's cumulative already >= overflow),
   // the whole session fits from the start. firstKeptIndex stays at 0.
 
-  // Write from firstKeptIndex to end, skipping session-type entries
+  // Write from firstKeptIndex to end
   mkdirSync(dirname(childSessionFile), { recursive: true });
   const trimmedLines: string[] = [buildSessionHeader(headerEntry, parentSessionFile)];
   for (let i = firstKeptIndex; i < entries.length; i++) {
@@ -236,6 +261,8 @@ function findLastAssistantUsage(entries: ParsedEntry[]): Record<string, unknown>
 
 /**
  * Write all entries with a new session header.
+ * Skips custom_message entries (extension metadata) — they lack a `message`
+ * field and crash the child's TUI renderer when it iterates all entries.
  */
 function writeAllEntries(
   entries: ParsedEntry[],

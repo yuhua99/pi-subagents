@@ -36,7 +36,6 @@ function optionalRequire(id: string): unknown | null {
   }
 }
 
-export { shouldAutoExitOnAgentEnd, shouldMarkUserTookOver };
 
 export function getDeniedToolNames(autoExit: boolean, deniedEnv = process.env.PI_DENY_TOOLS ?? ""): string[] {
   const denied = deniedEnv
@@ -192,7 +191,14 @@ export default function (pi: ExtensionAPI) {
   }
 
   function requestShutdown(ctx: { shutdown: () => void }) {
-    setTimeout(() => ctx.shutdown(), 0);
+    setTimeout(() => {
+      try {
+        ctx.shutdown();
+      } catch {
+        // Context may already be stale after session shutdown/reload.
+        // This is harmless — exit file was already written above.
+      }
+    }, 0);
   }
 
   function writeExitSignal(payload: object) {
