@@ -107,8 +107,8 @@ export function installDeniedToolGuards(
 }
 
 export default function (pi: ExtensionAPI) {
-  const tui = optionalRequire("@mariozechner/pi-tui");
-  const typebox = optionalRequire("typebox");
+  const tui = optionalRequire("@mariozechner/pi-tui") as typeof import("@mariozechner/pi-tui") | null;
+  const typebox = optionalRequire("typebox") as typeof import("typebox") | null;
   const Box = tui?.Box;
   const Text = tui?.Text;
   const doneParams = typebox?.Type?.Object

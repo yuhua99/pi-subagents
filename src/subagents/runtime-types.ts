@@ -2,7 +2,7 @@ import type { ChildProcess } from "node:child_process";
 
 export type DeliveryState = "detached" | "awaited" | "joined";
 export type ParentClosePolicy = "terminate" | "cancel" | "abandon";
-export type CompletedDelivery = "steer" | "wait" | "join";
+type CompletedDelivery = "steer" | "wait" | "join";
 export type SubagentCompletionStatus = "completed" | "failed" | "cancelled";
 export type ParentShutdownAction = "terminate" | "cancel" | "abandon";
 
@@ -39,7 +39,7 @@ export interface DetachParams {
 	id: string;
 }
 
-export interface SubagentPing {
+interface SubagentPing {
 	name: string;
 	message: string;
 }
@@ -135,7 +135,7 @@ export interface SyncSubagentToolDetails {
 	ids?: string[];
 }
 
-export interface ListedSubagentInfo {
+interface ListedSubagentInfo {
 	name: string;
 	description?: string;
 	model?: string;

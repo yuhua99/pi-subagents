@@ -94,6 +94,7 @@ This package leans heavily on frontmatter. Agent files are not just prompt wrapp
 | `auto-exit` | `false` | Child exits automatically after a normal completion | Best for autonomous agents, especially background scouts and reviewers |
 | `system-prompt` | task-body routing | `append` uses `--append-system-prompt`; `replace` uses `--system-prompt` | Use `replace` for hard role isolation, `append` when you want to preserve more surrounding context |
 | `session-mode` | `lineage-only` | Session seeding mode: `standalone`, `lineage-only`, or `fork` | Use the default `lineage-only` for a clean child that is still recorded as descended from the parent, `standalone` only for a clean unrelated child, and `fork` when the child needs the full parent context branch |
+| `fork-output-reserve-tokens` | `10000` | Token budget reserved for the child response when trimming inherited fork context; only applies to `session-mode: fork` and does not change the model's max output setting | Increase it for agents that write long results; decrease it to inherit more parent context when short answers are expected |
 | `spawning` | `false` | Allows or denies subagent-spawning tools | Set `true` only for coordinators that should launch other subagents |
 | `async` | `true` | `true`: parent does not wait. `false`: parent waits. | Use `async: false` only when the parent needs the result before continuing |
 | `mode` | `interactive` | `interactive` pane or `background` headless child | Use `background` for autonomous work; keep `interactive` when visibility matters |
@@ -110,6 +111,8 @@ The difference between `standalone` and `lineage-only` is runtime bookkeeping, n
 - `lineage-only` starts a clean child session that records it descended from the parent session. Use this default when session trees, resume/debugging, artifact attribution, or orchestration history should show where the child came from without paying to copy the conversation.
 - `standalone` starts the same kind of clean child, but does not tie it to the parent by lineage metadata. Use this only when the child is genuinely unrelated to the parent session.
 - `fork` starts a child with the parent context branch copied in. Use this when the child needs the prior conversation, decisions, or files already discussed by the parent.
+
+For `fork`, inherited context is trimmed against the child model's context window. `fork-output-reserve-tokens` controls how much room is left for the child's future response before inherited parent context is copied. It is a trimming reserve, not a provider `max_output_tokens` setting.
 
 In short: `standalone` is a clean unrelated child, `lineage-only` is a clean related child, and `fork` is a related child with inherited context.
 

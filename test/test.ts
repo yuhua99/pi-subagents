@@ -53,6 +53,8 @@ import subagentDoneExtension, {
   isMissingOptionalDependencyForTest,
 } from "../src/subagents/subagent-done.ts";
 import {
+  buildChildContextBoundaryForTest,
+  buildChildContextBoundarySystemPromptForTest,
   buildPiPromptArgsForTest,
   buildSubagentSessionTitleForTest,
   getSubagentDisplayTitleForTest,
@@ -80,6 +82,7 @@ import {
   joinSubagentsForTest,
   loadAgentDefaults,
   resolveEffectiveSessionModeForTest,
+  resolveForkOutputReserveTokensForTest,
   resolveTaskSessionModeForTest,
   resolveSubagentExtensionsForTest,
   resolveSubagentNoContextFilesForTest,
@@ -87,7 +90,10 @@ import {
   getPreparedSessionLaunchArgsForTest,
   getNoSessionSeedModeForTest,
   buildResumePiArgsForTest,
+  buildShellChangeDirectoryPrefixForTest,
   resolveResumeLaunchMetadataForTest,
+  readSubagentLaunchMetadataForTest,
+  getResumeCwdForTest,
   renderSubagentWidgetForTest,
   resetSubagentStateForTest,
   resolveSubagentBlockingForTest,
@@ -96,6 +102,7 @@ import {
   routeDetachedSubagentCompletionForTest,
   setRunningSubagentForTest,
   shutdownSubagentsForTest,
+  writeSubagentLaunchMetadataEntryForTest,
   waitForSubagentForTest,
   writeSystemPromptArtifactForTest,
   getTerminalAssistantSummaryForTest,
@@ -927,6 +934,31 @@ describe("shared/artifacts.ts", () => {
   });
 });
 
+describe("child context boundary", () => {
+  it("describes fork handoff placement and non-spawning behavior", () => {
+    const boundary = buildChildContextBoundaryForTest({ name: "greeter", spawningAllowed: false });
+    assert.match(boundary, /<subagent-boundary>/);
+    assert.match(boundary, /Everything before this message was inherited from the parent Pi session as background context\./);
+    assert.match(boundary, /Do not treat messages before this boundary as your current role, task, or available tool set\./);
+    assert.match(boundary, /child subagent named "greeter"/);
+    assert.match(boundary, /Subagent-spawning tools are not available in this child session\./);
+    assert.match(boundary, /Your active assignment is the next user message from the parent\./);
+  });
+
+  it("describes spawning-enabled behavior without claiming tools always exist", () => {
+    const boundary = buildChildContextBoundaryForTest({ name: "coordinator", spawningAllowed: true });
+    assert.match(boundary, /Subagent-spawning tools may be available in this child session\./);
+    assert.match(boundary, /Use them only if they are actually available to you and your active assignment requires delegation\./);
+  });
+
+  it("uses a small system prompt pointer to the boundary tag", () => {
+    assert.equal(
+      buildChildContextBoundarySystemPromptForTest(),
+      "If this session contains a <subagent-boundary> message, treat it as the handoff point from inherited parent context to your active child-subagent task. Follow that boundary message when interpreting prior context and the next user task.",
+    );
+  });
+});
+
 describe("subagents/index.ts helpers", () => {
   afterEach(() => {
     resetSubagentStateForTest();
@@ -1114,6 +1146,32 @@ describe("subagents/index.ts helpers", () => {
     assert.deepEqual(getPreparedSessionLaunchArgsForTest(defaults), ["--session", "child.jsonl"]);
   });
 
+  it("reads fork output reserve tokens from agent frontmatter", () => {
+    const dir = createTestDir();
+    const configDir = join(dir, "agent-root");
+    const agentsDir = join(configDir, "agents");
+    mkdirSync(agentsDir, { recursive: true });
+    process.env.PI_CODING_AGENT_DIR = configDir;
+
+    writeFileSync(
+      join(agentsDir, "tester.md"),
+      `---\nname: tester\nfork-output-reserve-tokens: 20000\n---\n\nYou are the tester.`,
+    );
+
+    const defs = loadAgentDefaults("tester");
+    assert.equal(defs?.forkOutputReserveTokens, 20000);
+    assert.equal(resolveForkOutputReserveTokensForTest(defs), 20000);
+    assert.equal(resolveForkOutputReserveTokensForTest(null), undefined);
+
+    writeFileSync(
+      join(agentsDir, "tester.md"),
+      `---\nname: tester\nfork-output-reserve-tokens: lol\n---\n\nYou are the tester.`,
+    );
+
+    const invalid = loadAgentDefaults("tester");
+    assert.equal(invalid?.forkOutputReserveTokens, undefined);
+  });
+
   it("launches no-session children through an ephemeral session path", () => {
     assert.deepEqual(getPreparedSessionLaunchArgsForTest({ noSession: true, sessionMode: "fork" }), [
       "--session",
@@ -1130,7 +1188,7 @@ describe("subagents/index.ts helpers", () => {
     assert.equal(getNoSessionSeedModeForTest("lineage-only"), "fork");
   });
 
-  it("resumes without putting task text in CLI argv", () => {
+  it("restores persisted resume cwd without putting task text in CLI argv", () => {
     const weirdTask = "--help @not-a-file ' \" ` ; | && $(echo bad) $HOME\nこんにちは 🚀";
     assert.deepEqual(buildResumePiArgsForTest("child.jsonl", "background"), [
       "-p",
@@ -1143,6 +1201,25 @@ describe("subagents/index.ts helpers", () => {
     ]);
     assert.equal(buildResumePiArgsForTest("child.jsonl", "background").includes(weirdTask), false);
     assert.equal(buildResumePiArgsForTest("child.jsonl", "interactive").includes(weirdTask), false);
+
+    const metadata = {
+      version: 1 as const,
+      timestamp: "2026-05-08T00:00:00.000Z",
+      name: "resumed-child",
+      mode: "background" as const,
+      sessionMode: "fork" as const,
+      parentClosePolicy: "terminate" as const,
+      blocking: false,
+      async: true,
+      denyTools: [],
+      noContextFiles: false,
+      noSession: false,
+      agentConfigDir: "/tmp/agent",
+      cwd: "/tmp/child cwd/with spaces",
+      boundarySystemPrompt: true,
+    };
+    assert.equal(getResumeCwdForTest(metadata), "/tmp/child cwd/with spaces");
+    assert.equal(buildShellChangeDirectoryPrefixForTest(metadata.cwd), "cd '/tmp/child cwd/with spaces' && ");
   });
 
   it("infers resume mode from parent launch metadata", () => {
@@ -1198,6 +1275,70 @@ describe("subagents/index.ts helpers", () => {
       mode: "interactive",
       modeSource: "fallback",
     });
+  });
+
+  it("prefers direct launch metadata when inferring resume mode", async () => {
+    const dir = createTestDir();
+    const child = join(dir, "direct-metadata-child.jsonl");
+    await writeSubagentLaunchMetadataEntryForTest(child, {
+      version: 1,
+      timestamp: "2026-05-08T00:00:00.000Z",
+      name: "direct-child",
+      mode: "background",
+      sessionMode: "fork",
+      autoExit: true,
+      parentClosePolicy: "abandon",
+      blocking: false,
+      async: true,
+      denyTools: [],
+      noContextFiles: false,
+      noSession: false,
+      agentConfigDir: dir,
+      cwd: dir,
+      boundarySystemPrompt: true,
+    });
+
+    assert.deepEqual(resolveResumeLaunchMetadataForTest(child), {
+      mode: "background",
+      modeSource: "metadata",
+      agent: undefined,
+      name: "direct-child",
+      autoExit: true,
+      parentClosePolicy: "abandon",
+      blocking: false,
+      async: true,
+    });
+  });
+
+  it("persists launch metadata as non-message JSONL custom state even for missing session files", async () => {
+    const dir = createTestDir();
+    const child = join(dir, "standalone-child.jsonl");
+    await writeSubagentLaunchMetadataEntryForTest(child, {
+      version: 1,
+      timestamp: "2026-05-08T00:00:00.000Z",
+      name: "standalone-child",
+      mode: "background",
+      sessionMode: "standalone",
+      parentClosePolicy: "abandon",
+      blocking: false,
+      async: true,
+      modelRef: "nahcrof/kimi-k2.6-precision",
+      denyTools: [],
+      noContextFiles: false,
+      noSession: false,
+      agentConfigDir: dir,
+      cwd: dir,
+      systemPromptMode: "replace",
+      systemPrompt: "STANDALONE_CHILD_PROMPT_TOKEN",
+      boundarySystemPrompt: false,
+    });
+
+    const entries = getEntries(child) as any[];
+    assert.equal(entries[0].type, "session");
+    assert.equal(entries[1].type, "custom");
+    assert.equal(entries[1].customType, "pi-subagents_launch_metadata");
+    assert.equal(JSON.stringify(entries).includes("custom_message"), false);
+    assert.equal(readSubagentLaunchMetadataForTest(child)?.systemPrompt, "STANDALONE_CHILD_PROMPT_TOKEN");
   });
 
   it("reads extensions from extensions frontmatter", () => {
@@ -2438,6 +2579,18 @@ describe("subagents/index.ts helpers", () => {
     seedSubagentSessionFileForTest("lineage-only", parent, child, dir);
 
     assert.equal(existsSync(child), false);
+  });
+
+  it("throws for fork seeding without a known child context window", () => {
+    const dir = createTestDir();
+    const parent = join(dir, "parent.jsonl");
+    const child = join(dir, "child.jsonl");
+    writeFileSync(parent, [SESSION_HEADER, MODEL_CHANGE].map((entry) => JSON.stringify(entry)).join("\n") + "\n");
+
+    assert.throws(
+      () => seedSubagentSessionFileForTest("fork", parent, child, dir),
+      /child model context window is unknown/,
+    );
   });
 
   it("does not pre-create forked child session files without assistant context", () => {

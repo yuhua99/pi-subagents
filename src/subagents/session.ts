@@ -9,7 +9,7 @@ export interface SessionEntry {
   [key: string]: unknown;
 }
 
-export interface MessageEntry extends SessionEntry {
+interface MessageEntry extends SessionEntry {
   type: "message";
   message: {
     role: "user" | "assistant" | "toolResult";
