@@ -13,7 +13,7 @@
   },
   "type": "module",
   "scripts": {
-    "test": "node --test test/test.ts test/system-prompt-mode.test.ts test/subagents/sync.test.ts test/subagents/widget.test.ts test/live-test-guard.test.ts",
+    "test": "node --test test/test.ts test/system-prompt-mode.test.ts test/subagents/sync.test.ts test/subagents/widget.test.ts test/subagents/cmux.test.ts test/live-test-guard.test.ts",
     "test:e2e-live": "node scripts/test-e2e-live.mjs",
     "test:e2e-live-blocking": "node scripts/test-e2e-live-blocking.mjs",
     "test:e2e-live-mix-blocking": "node scripts/test-e2e-live-mix-blocking.mjs",

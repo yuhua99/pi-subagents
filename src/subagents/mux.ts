@@ -177,15 +177,13 @@ let cmuxSubagentPane: string | null = null;
 export function createSurface(name: string): string {
   const backend = getMuxBackend();
 
-  if (backend === "cmux" && cmuxSubagentPane) {
-    try {
-      const tree = execSync(`cmux tree`, { encoding: "utf8" });
-      if (tree.includes(cmuxSubagentPane)) {
-        return createSurfaceInPane(name, cmuxSubagentPane);
-      }
-    } catch {}
-    cmuxSubagentPane = null;
-  }
+  // Do not reuse a single cmux pane for multiple interactive subagents.
+  // cmux surfaces created with `new-surface --pane <pane>` can exist, but in
+  // practice concurrent/sequential interactive child launches can leave later
+  // prompts in a non-visible/non-focused surface and polling then fails with
+  // "Failed to read subagent surface while polling for exit". Give every
+  // interactive child its own split/surface so input injection and read-screen
+  // target an independently visible terminal.
 
   const surface = createSurfaceSplit(
     name,
@@ -210,7 +208,7 @@ export function createSurface(name: string): string {
 }
 
 function createSurfaceInPane(name: string, pane: string): string {
-  const out = execSync(`cmux new-surface --pane ${shellEscape(pane)}`, {
+  const out = execSync(`cmux new-surface --pane ${shellEscape(pane)} --focus true`, {
     encoding: "utf8",
   }).trim();
   const match = out.match(/surface:\d+/);
@@ -233,7 +231,7 @@ export function createSurfaceSplit(
 
   if (backend === "cmux") {
     const surfaceArg = fromSurface ? ` --surface ${shellEscape(fromSurface)}` : "";
-    const out = execSync(`cmux new-split ${direction}${surfaceArg}`, {
+    const out = execSync(`cmux new-split ${direction}${surfaceArg} --focus true`, {
       encoding: "utf8",
     }).trim();
     const match = out.match(/surface:\d+/);

@@ -252,6 +252,21 @@ const ORIGINAL_ENV = Object.fromEntries(
   TRACKED_ENV_KEYS.map((key) => [key, process.env[key]]),
 ) as Record<(typeof TRACKED_ENV_KEYS)[number], string | undefined>;
 
+const ISOLATED_SUBAGENT_ENV_KEYS = [
+  "PI_DENY_TOOLS",
+  "PI_SUBAGENT_AUTO_EXIT",
+  "PI_SUBAGENT_DISABLE_AMBIENT_AWARENESS",
+  "PI_SUBAGENT_PARENT_SESSION",
+  "PI_SUBAGENT_SESSION",
+  "PI_SUBAGENT_SESSION_TITLE",
+] as const;
+
+function clearIsolatedSubagentEnv(): void {
+  for (const key of ISOLATED_SUBAGENT_ENV_KEYS) {
+    delete process.env[key];
+  }
+}
+
 function restoreTrackedEnv(): void {
   for (const key of TRACKED_ENV_KEYS) {
     const value = ORIGINAL_ENV[key];
@@ -262,6 +277,10 @@ function restoreTrackedEnv(): void {
     }
   }
 }
+
+beforeEach(() => {
+  clearIsolatedSubagentEnv();
+});
 
 afterEach(() => {
   restoreTrackedEnv();
@@ -1212,6 +1231,26 @@ describe("subagents/index.ts helpers", () => {
         "-e",
         "https://example.com/ext.ts",
       ],
+    );
+  });
+
+  it("allows extensions none to launch child with only mandatory internal extension", () => {
+    const dir = createTestDir();
+    const configDir = join(dir, "agent-root");
+    const agentsDir = join(configDir, "agents");
+    mkdirSync(agentsDir, { recursive: true });
+    writeFileSync(
+      join(agentsDir, "tester.md"),
+      `---\nname: tester\nextensions: none\nskills: research, exa\n---\n\nYou are the tester.`,
+    );
+    process.env.PI_CODING_AGENT_DIR = configDir;
+
+    const defs = loadAgentDefaults("tester");
+    assert.equal(defs?.extensions, "none");
+    assert.deepEqual(resolveSubagentExtensionsForTest(defs), []);
+    assert.deepEqual(
+      getExtensionLaunchArgsForTest(resolveSubagentExtensionsForTest(defs), "/tmp/subagent-done.ts"),
+      ["--no-extensions", "-e", "/tmp/subagent-done.ts"],
     );
   });
 
@@ -3990,8 +4029,8 @@ esac
       closeSurface(secondSurface);
 
       const log = readFileSync(logFile, "utf8");
-      assert.match(log, /new-split/);
-      assert.match(log, /new-surface/);
+      assert.match(log, /new-split right --focus true/);
+      assert.doesNotMatch(log, /new-surface/);
       assert.match(log, /rename-tab/);
       assert.match(log, /workspace-action/);
       assert.match(log, /send/);
