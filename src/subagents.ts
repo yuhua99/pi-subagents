@@ -161,6 +161,14 @@ export default function subagentsExtension(pi: ExtensionAPI) {
 		if (!shouldRegister("subagent")) return;
 		if (ctx.sessionManager.getHeader()?.parentSession) return;
 
+		// Reset the cached signature on every fresh session so that module-level
+		// state does not persist across TIA sessions. The reload path still uses
+		// the cached signature to avoid duplicating the notification within the
+		// same session.
+		if (event.reason !== "reload") {
+			lastAmbientCatalogSignature = null;
+		}
+
 		const entries = getAmbientCatalogEntries(ctx.cwd);
 		const signature = getSubagentCatalogSignature(entries);
 		if (entries.length === 0) {

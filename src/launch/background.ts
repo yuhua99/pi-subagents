@@ -49,7 +49,8 @@ export async function launchBackgroundSubagent(
 	const id = Math.random().toString(16).slice(2, 10);
 	const prepared = prepareSubagentLaunch(params, ctx);
 	const subagentDonePath = join(
-		dirname(new URL(import.meta.url).pathname),
+		dirname(dirname(new URL(import.meta.url).pathname)),
+		"tools",
 		"subagent-done.ts",
 	);
 	const roleBlock = getPreparedRoleBlock(prepared);

@@ -35,6 +35,8 @@ export interface SubagentLaunchContext {
 	cwd: string;
 	childModelContextWindow?: number;
 	launchToolCallId?: string;
+	/** Override for auto-exit (used in headless mode to force auto-exit on). */
+	autoExit?: boolean;
 }
 
 export interface PreparedSubagentLaunch {
@@ -73,6 +75,11 @@ export function prepareSubagentLaunch(
 	const agentDefs = params.agent
 		? loadAgentDefaults(params.agent, params.cwd, ctx.cwd)
 		: null;
+	// Apply headless-mode auto-exit override so downstream consumers (mode hint,
+	// env vars, deny set, metadata) all see the effective value.
+	if (ctx.autoExit !== undefined && agentDefs) {
+		agentDefs.autoExit = ctx.autoExit;
+	}
 	const effectiveModel = params.model ?? agentDefs?.model;
 	const effectiveTools = params.tools ?? agentDefs?.tools;
 	const effectiveSkills = params.skills ?? agentDefs?.skills;

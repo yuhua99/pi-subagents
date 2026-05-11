@@ -224,7 +224,15 @@ function writeChildSession(
 	mkdirSync(dirname(childSessionFile), { recursive: true });
 	const lines = [buildSessionHeader(headerEntry, parentSessionFile)];
 	for (const entry of entries) {
-		if (entry.parsed.type !== "session") lines.push(serializeEntry(entry));
+		if (entry.parsed.type !== "session") {
+			// Children never receive ambient awareness (skipped in session_start for
+			// parentSession sessions). Drop the catalog to avoid wasting context window.
+			if (
+				entry.parsed.type === "custom_message" &&
+				(entry.parsed as Record<string, unknown>).customType === "subagent_catalog"
+			) continue;
+			lines.push(serializeEntry(entry));
+		}
 	}
 	writeFileSync(childSessionFile, `${lines.join("\n")}\n`, "utf-8");
 }

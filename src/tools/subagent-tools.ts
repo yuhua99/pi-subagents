@@ -90,6 +90,10 @@ export function registerSubagentCoreTools(
 			if (agentError) throw new Error(agentError.content[0]?.text ?? "Agent requirement error");
 			const toolsConfigError = getSubagentToolsConfigError(agentDefs?.tools, params.agent);
 			if (toolsConfigError) throw new Error(toolsConfigError.content[0]?.text ?? "Tools config error");
+			// In headless mode (no UI / print mode), force auto-exit so that
+			// manual-lifecycle agents don't hang forever without an operator.
+			// The override is applied in prepareSubagentLaunch via ctx.autoExit.
+			const headlessAutoExit = !ctx.hasUI && agentDefs?.autoExit !== true ? true : undefined;
 			const effectiveParams = enforceAgentFrontmatter(params, agentDefs);
 			const currentAgent = process.env.PI_SUBAGENT_AGENT;
 			if (effectiveParams.agent && currentAgent && effectiveParams.agent === currentAgent) {
@@ -106,19 +110,26 @@ export function registerSubagentCoreTools(
 				const err = getUnknownForkContextWindowError(effectiveParams.agent, childModelRef);
 				throw new Error(err.content[0]?.text ?? "Unknown fork context window");
 			}
-			const launchCtx: SubagentLaunchContext = { sessionManager: ctx.sessionManager, cwd: ctx.cwd, childModelContextWindow, launchToolCallId: toolCallId };
+			const launchCtx: SubagentLaunchContext = { sessionManager: ctx.sessionManager, cwd: ctx.cwd, childModelContextWindow, launchToolCallId: toolCallId, autoExit: headlessAutoExit };
 			let running: RunningSubagent;
 			if (isBackground) {
 				running = await runtime.launchBackgroundSubagent(effectiveParams, launchCtx);
 				const watcherAbort = new AbortController();
 				running.abortController = watcherAbort;
 				running.completionPromise = runtime.watchBackgroundSubagent(running, runtime.getWatcherSignal(running, watcherAbort), agentDefs?.timeout);
-			} else {
-				if (!isMuxAvailable()) throw new Error(`Subagents require a supported terminal multiplexer. ${muxSetupHint()}`);
+			} else if (ctx.hasUI && isMuxAvailable()) {
 				running = await runtime.launchSubagent(effectiveParams, launchCtx);
 				const watcherAbort = new AbortController();
 				running.abortController = watcherAbort;
 				running.completionPromise = runtime.watchSubagent(running, runtime.getWatcherSignal(running, watcherAbort));
+			} else {
+				// Fall back to background when there's no UI (print/RPC mode) or no
+				// multiplexer. Interactive panes need a live parent session to deliver
+				// results — in one-shot mode the parent exits after the tool result.
+				running = await runtime.launchBackgroundSubagent(effectiveParams, launchCtx);
+				const watcherAbort = new AbortController();
+				running.abortController = watcherAbort;
+				running.completionPromise = runtime.watchBackgroundSubagent(running, runtime.getWatcherSignal(running, watcherAbort), agentDefs?.timeout);
 			}
 			runtime.startWidgetRefresh();
 			runtime.wireSubagentSteerBack(pi, running, running.completionPromise);

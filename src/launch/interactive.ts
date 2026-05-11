@@ -94,7 +94,7 @@ export async function launchInteractiveSubagent(
 	const parts = getPiShellParts(getPreparedSessionLaunchArgs(prepared));
 	const { boundarySystemPrompt: shouldWriteChildBoundary } =
 		seedPreparedSubagentSession(prepared, params, ctx, sessionMode, noSession);
-	const subagentDonePath = join(dirname(new URL(import.meta.url).pathname), "subagent-done.ts");
+	const subagentDonePath = join(dirname(dirname(new URL(import.meta.url).pathname)), "tools", "subagent-done.ts");
 	for (const arg of getPreparedExtensionLaunchArgs(prepared, subagentDonePath)) {
 		parts.push(shellEscape(arg));
 	}
@@ -149,10 +149,7 @@ export async function launchInteractiveSubagent(
 		taskArg,
 		directTask,
 	);
-	const injectTaskAfterStart = prepared.agentDefs?.autoExit !== true;
-	if (!injectTaskAfterStart) {
-		for (const promptArg of promptArgs) parts.push(shellEscape(promptArg));
-	}
+	for (const promptArg of promptArgs) parts.push(shellEscape(promptArg));
 
 	const cdPrefix = prepared.runtimePaths.effectiveCwd
 		? `cd ${shellEscape(prepared.runtimePaths.effectiveCwd)} && `
@@ -164,20 +161,6 @@ export async function launchInteractiveSubagent(
 	sendShellCommand(surface, command);
 	if (!existsSync(prepared.subagentSessionFile)) {
 		await writeSubagentLaunchMetadataEntryWhenReady(prepared.subagentSessionFile, launchMetadata);
-	}
-	if (injectTaskAfterStart) {
-		if (getMuxBackend() === "cmux") {
-			await runtime.waitForInteractivePrompt(surface);
-		} else {
-			await new Promise<void>((resolve) =>
-				setTimeout(resolve, Math.max(3000, runtime.getShellReadyDelayMs())),
-			);
-		}
-		sendCommand(surface, "");
-		await new Promise<void>((resolve) => setTimeout(resolve, 500));
-		sendCommand(surface, promptArgs.join(" ").trim());
-		await new Promise<void>((resolve) => setTimeout(resolve, 8000));
-		sendCommand(surface, "");
 	}
 
 	return {

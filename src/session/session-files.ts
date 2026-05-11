@@ -110,7 +110,14 @@ export function seedSubagentSessionFile(
 ): void {
 	void cwd;
 	mkdirSync(dirname(childSessionFile), { recursive: true });
-	if (mode === "lineage-only") return;
+	// Write a session header for lineage-only so the session file exists before
+	// the background child starts. This prevents a race where the parent's
+	// writeSubagentLaunchMetadataEntryWhenReady fallback writes a header that
+	// the child then duplicates when Pi starts.
+	if (mode === "lineage-only") {
+		writeHeaderOnlySubagentSessionFile(childSessionFile, cwd, parentSessionFile);
+		return;
+	}
 
 	if (mode === "fork") {
 		if (!forkTrimOptions) {

@@ -553,7 +553,7 @@ describe("ambient agents and runtime paths", () => {
 		);
 	});
 
-	it("does not pre-create lineage-only child session files", () => {
+	it("pre-creates lineage-only child session file with header", () => {
 		const dir = createTestDir();
 		const parent = join(dir, "parent.jsonl");
 		const child = join(dir, "child.jsonl");
@@ -561,7 +561,10 @@ describe("ambient agents and runtime paths", () => {
 
 		seedSubagentSessionFileForTest("lineage-only", parent, child, dir);
 
-		assert.equal(existsSync(child), false);
+		assert.equal(existsSync(child), true);
+		const entries = JSON.parse(readFileSync(child, "utf8").split("\n")[0]);
+		assert.equal(entries.type, "session");
+		assert.equal(entries.parentSession, parent);
 	});
 
 	it("throws for fork seeding without a known child context window", () => {
