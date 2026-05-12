@@ -12,6 +12,7 @@ import {
 	appendBranchSummary,
 	copySessionFile,
 	findLastAssistantMessage,
+	findLastSubagentOutput,
 	getEntries,
 	getEntryCount,
 	getLeafId,
@@ -184,6 +185,55 @@ describe("session.ts", () => {
 			};
 			const entries = [realMsg, emptyMsg] as any[];
 			assert.equal(findLastAssistantMessage(entries), "Real summary content.");
+		});
+	});
+
+	describe("findLastSubagentOutput", () => {
+		it("prefers final assistant text", () => {
+			const entries = [
+				TOOL_RESULT,
+				{
+					type: "message",
+					message: {
+						role: "assistant",
+						content: [{ type: "text", text: "Final assistant summary." }],
+					},
+				},
+			] as any[];
+
+			assert.equal(findLastSubagentOutput(entries), "Final assistant summary.");
+		});
+
+		it("falls back to the last meaningful tool result when assistant only calls subagent_done", () => {
+			const entries = [
+				{
+					type: "message",
+					message: {
+						role: "toolResult",
+						toolName: "bash",
+						content: [{ type: "text", text: "Actual child output." }],
+					},
+				},
+				{
+					type: "message",
+					message: {
+						role: "assistant",
+						content: [
+							{ type: "toolCall", name: "subagent_done", arguments: {} },
+						],
+					},
+				},
+				{
+					type: "message",
+					message: {
+						role: "toolResult",
+						toolName: "subagent_done",
+						content: [{ type: "text", text: "Shutting down subagent session." }],
+					},
+				},
+			] as any[];
+
+			assert.equal(findLastSubagentOutput(entries), "Actual child output.");
 		});
 	});
 

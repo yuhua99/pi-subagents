@@ -13,6 +13,7 @@ interface MessageEntry extends SessionEntry {
 	type: "message";
 	message: {
 		role: "user" | "assistant" | "toolResult";
+		toolName?: string;
 		content: Array<{ type: string; text?: string; [key: string]: unknown }>;
 	};
 }
@@ -64,6 +65,19 @@ export function getNewEntries(
 		);
 }
 
+function getTextContent(msg: MessageEntry): string | null {
+	const texts = msg.message.content
+		.filter(
+			(block) =>
+				block.type === "text" &&
+				typeof block.text === "string" &&
+				block.text.trim() !== "",
+		)
+		.map((block) => block.text as string);
+
+	return texts.length > 0 && texts.join("").trim() ? texts.join("\n") : null;
+}
+
 export function findLastAssistantMessage(
 	entries: SessionEntry[],
 ): string | null {
@@ -72,17 +86,25 @@ export function findLastAssistantMessage(
 		if (entry.type !== "message") continue;
 		const msg = entry as MessageEntry;
 		if (msg.message.role !== "assistant") continue;
+		const text = getTextContent(msg);
+		if (text) return text;
+	}
+	return null;
+}
 
-		const texts = msg.message.content
-			.filter(
-				(block) =>
-					block.type === "text" &&
-					typeof block.text === "string" &&
-					block.text.trim() !== "",
-			)
-			.map((block) => block.text as string);
+export function findLastSubagentOutput(entries: SessionEntry[]): string | null {
+	const assistantText = findLastAssistantMessage(entries);
+	if (assistantText) return assistantText;
 
-		if (texts.length > 0 && texts.join("").trim()) return texts.join("\n");
+	for (let i = entries.length - 1; i >= 0; i--) {
+		const entry = entries[i];
+		if (entry.type !== "message") continue;
+		const msg = entry as MessageEntry;
+		if (msg.message.role !== "toolResult") continue;
+		if (msg.message.toolName === "subagent_done") continue;
+		if (msg.message.toolName === "caller_ping") continue;
+		const text = getTextContent(msg);
+		if (text) return text;
 	}
 	return null;
 }

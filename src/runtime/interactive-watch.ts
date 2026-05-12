@@ -5,7 +5,7 @@ import {
 	pollForExit,
 } from "../mux.ts";
 import type { RunningSubagent, SubagentResult } from "../types.ts";
-import { findLastAssistantMessage, getNewEntries } from "../session/session.ts";
+import { findLastSubagentOutput, getNewEntries } from "../session/session.ts";
 
 export interface InteractiveWatchRuntime {
 	cleanupNoSessionSessionFile(running: RunningSubagent): void;
@@ -47,7 +47,7 @@ export async function watchSubagent(
 				running.launchEntryCount ?? 0,
 			);
 			summary =
-				findLastAssistantMessage(allEntries) ??
+				findLastSubagentOutput(allEntries) ??
 				(pollResult.exitCode !== 0
 					? `Sub-agent exited with code ${pollResult.exitCode}`
 					: "Sub-agent exited without output");

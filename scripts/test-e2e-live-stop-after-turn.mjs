@@ -116,9 +116,8 @@ function findParentSession(sessionDir, marker) {
 
 function runPi(sessionDir, prompt, extraEnv = {}) {
   execFileSync(
-    "tia",
+    "pi",
     [
-      "pi",
       "-p",
       "--model",
       LIVE_TEST_MODEL,

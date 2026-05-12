@@ -85,8 +85,6 @@ describe("agent launch configuration", () => {
 
 	it("preserves the default launcher when no subagent command override is set", () => {
 		delete process.env.PI_SUBAGENT_PI_COMMAND;
-		delete process.env.TIA_ACTIVE;
-		delete process.env.TIA_COMMAND;
 		delete process.env.PI_PACKAGE_DIR;
 		delete process.env.PI_CODING_AGENT_DIR;
 		const invocation = getPiInvocationForTest([
@@ -101,115 +99,52 @@ describe("agent launch configuration", () => {
 	});
 
 	it("uses PI_SUBAGENT_PI_COMMAND as an opt-in wrapper for child pi launches", () => {
-		process.env.PI_SUBAGENT_PI_COMMAND = "tia pi";
+		process.env.PI_SUBAGENT_PI_COMMAND = "wrapper pi";
 		assert.deepEqual(
 			getPiInvocationForTest(["--session", "/tmp/session.jsonl"]),
 			{
-				command: "tia",
+				command: "wrapper",
 				args: ["pi", "--session", "/tmp/session.jsonl"],
 			},
 		);
 		assert.deepEqual(
 			getPiShellPartsForTest(["--session", "/tmp/with space.jsonl"]),
-			["'tia'", "'pi'", "'--session'", "'/tmp/with space.jsonl'"],
-		);
-	});
-
-	it("auto-detects tia parents and launches child pi through tia pi", () => {
-		delete process.env.PI_SUBAGENT_PI_COMMAND;
-		process.env.TIA_ACTIVE = "1";
-		assert.deepEqual(
-			getPiInvocationForTest(["--session", "/tmp/session.jsonl"]),
-			{
-				command: "tia",
-				args: ["pi", "--session", "/tmp/session.jsonl"],
-			},
-		);
-	});
-
-	it("auto-detects tia parents from tia package/config env when no marker is available", () => {
-		delete process.env.PI_SUBAGENT_PI_COMMAND;
-		delete process.env.TIA_ACTIVE;
-		delete process.env.TIA_COMMAND;
-		process.env.PI_PACKAGE_DIR = "/Users/example/.local/share/tia/bin";
-		process.env.PI_CODING_AGENT_DIR =
-			"/Users/example/.local/share/tia/pi-agent";
-		assert.deepEqual(
-			getPiInvocationForTest(["--session", "/tmp/session.jsonl"]),
-			{
-				command: "tia",
-				args: ["pi", "--session", "/tmp/session.jsonl"],
-			},
-		);
-	});
-
-	it("lets PI_SUBAGENT_PI_COMMAND override automatic tia detection", () => {
-		process.env.PI_SUBAGENT_PI_COMMAND = "custom-pi --flag";
-		process.env.TIA_ACTIVE = "1";
-		assert.deepEqual(
-			getPiInvocationForTest(["--session", "/tmp/session.jsonl"]),
-			{
-				command: "custom-pi",
-				args: ["--flag", "--session", "/tmp/session.jsonl"],
-			},
+			["'wrapper'", "'pi'", "'--session'", "'/tmp/with space.jsonl'"],
 		);
 	});
 
 	it("parses quoted PI_SUBAGENT_PI_COMMAND values", () => {
-		process.env.PI_SUBAGENT_PI_COMMAND = "'/opt/tia bin/tia' pi";
+		process.env.PI_SUBAGENT_PI_COMMAND = "'/opt/wrapper bin/pi-wrapper' pi";
 		assert.deepEqual(
 			getPiInvocationForTest(["--session", "/tmp/session.jsonl"]),
 			{
-				command: "/opt/tia bin/tia",
+				command: "/opt/wrapper bin/pi-wrapper",
 				args: ["pi", "--session", "/tmp/session.jsonl"],
 			},
 		);
 	});
 
-	it("does not leak tia package/config env into normal pi child launches", () => {
-		process.env.PI_PACKAGE_DIR = "/tmp/tia/bin";
-		process.env.PI_CODING_AGENT_DIR = "/tmp/tia/pi-agent";
+	it("preserves child process environment while applying launch vars", () => {
+		process.env.PI_PACKAGE_DIR = "/tmp/pi-package";
+		process.env.PI_CODING_AGENT_DIR = "/tmp/pi-agent";
 		const env = getSubagentChildProcessEnvForTest(
 			{ command: "pi", args: [] },
 			{ PI_SUBAGENT_NAME: "x" },
 		);
-		assert.equal(env.PI_PACKAGE_DIR, undefined);
-		assert.equal(env.PI_CODING_AGENT_DIR, undefined);
+		assert.equal(env.PI_PACKAGE_DIR, "/tmp/pi-package");
+		assert.equal(env.PI_CODING_AGENT_DIR, "/tmp/pi-agent");
 		assert.equal(env.PI_SUBAGENT_NAME, "x");
 	});
 
-	it("preserves non-tia custom PI_CODING_AGENT_DIR for normal pi child launches", () => {
-		delete process.env.PI_PACKAGE_DIR;
-		process.env.PI_CODING_AGENT_DIR = "/tmp/custom-pi-agent";
-		const env = getSubagentChildProcessEnvForTest(
-			{ command: "pi", args: [] },
-			{ PI_SUBAGENT_NAME: "x" },
-		);
-		assert.equal(env.PI_CODING_AGENT_DIR, "/tmp/custom-pi-agent");
-		assert.equal(env.PI_SUBAGENT_NAME, "x");
-	});
-
-	it("preserves explicit child config while stripping inherited tia env for normal pi child launches", () => {
-		process.env.PI_PACKAGE_DIR = "/tmp/tia/bin";
-		process.env.PI_CODING_AGENT_DIR = "/tmp/tia/pi-agent";
+	it("lets explicit child config override inherited config", () => {
+		process.env.PI_PACKAGE_DIR = "/tmp/pi-package";
+		process.env.PI_CODING_AGENT_DIR = "/tmp/pi-agent";
 		const env = getSubagentChildProcessEnvForTest(
 			{ command: "pi", args: [] },
 			{ PI_CODING_AGENT_DIR: "/tmp/project/.pi/agent", PI_SUBAGENT_NAME: "x" },
 		);
-		assert.equal(env.PI_PACKAGE_DIR, undefined);
+		assert.equal(env.PI_PACKAGE_DIR, "/tmp/pi-package");
 		assert.equal(env.PI_CODING_AGENT_DIR, "/tmp/project/.pi/agent");
-		assert.equal(env.PI_SUBAGENT_NAME, "x");
-	});
-
-	it("preserves tia package/config env when child launches through tia pi", () => {
-		process.env.PI_PACKAGE_DIR = "/tmp/tia/bin";
-		process.env.PI_CODING_AGENT_DIR = "/tmp/tia/pi-agent";
-		const env = getSubagentChildProcessEnvForTest(
-			{ command: "tia", args: ["pi"] },
-			{ PI_SUBAGENT_NAME: "x" },
-		);
-		assert.equal(env.PI_PACKAGE_DIR, "/tmp/tia/bin");
-		assert.equal(env.PI_CODING_AGENT_DIR, "/tmp/tia/pi-agent");
 		assert.equal(env.PI_SUBAGENT_NAME, "x");
 	});
 

@@ -9,6 +9,7 @@ import {
 	it,
 	getCompletedSubagentResultForTest,
 	getLaunchedSubagentResultForTest,
+	markSubagentBatchBlockingForTest,
 	getStartedSubagentDetailsForTest,
 	getTerminalAssistantSummaryAfterLaunchForTest,
 	getTerminalAssistantSummaryForTest,
@@ -152,7 +153,7 @@ describe("fork session launch behavior", () => {
 
 		const launched = (await getLaunchedSubagentResultForTest(running)) as any;
 		assert.match(launched.content[0].text, /child-123/);
-		assert.match(launched.content[0].text, /subagent_join/);
+		assert.match(launched.content[0].text, /resume or stop/);
 
 		const started = getStartedSubagentDetailsForTest(running);
 		assert.equal(started.status, "started");
@@ -286,8 +287,7 @@ describe("fork session launch behavior", () => {
 		);
 	});
 
-	it("keeps detached siblings running while a blocking child gates the parent", async () => {
-		const sent: Array<{ message: any; options: any }> = [];
+	it("awaits async siblings when a blocking child gates the batch", async () => {
 		let resolveAsyncA!: (result: any) => void;
 		let resolveAsyncB!: (result: any) => void;
 		let resolveBlocking!: (result: any) => void;
@@ -310,6 +310,7 @@ describe("fork session launch behavior", () => {
 			deliveryState: "detached" as const,
 			parentClosePolicy: "terminate" as const,
 			blocking: false,
+			async: true,
 			startTime: Date.now(),
 			sessionFile: "/tmp/child-mix-async-a.jsonl",
 			completionPromise: asyncAPromise,
@@ -323,6 +324,7 @@ describe("fork session launch behavior", () => {
 			deliveryState: "detached" as const,
 			parentClosePolicy: "terminate" as const,
 			blocking: false,
+			async: true,
 			startTime: Date.now(),
 			sessionFile: "/tmp/child-mix-async-b.jsonl",
 			completionPromise: asyncBPromise,
@@ -336,40 +338,19 @@ describe("fork session launch behavior", () => {
 			deliveryState: "detached" as const,
 			parentClosePolicy: "terminate" as const,
 			blocking: true,
+			async: false,
 			startTime: Date.now(),
 			sessionFile: "/tmp/child-mix-blocking.jsonl",
 			completionPromise: blockingPromise,
 		};
 
+		markSubagentBatchBlockingForTest();
 		for (const running of [asyncA, asyncB, blocking]) {
 			setRunningSubagentForTest(running);
-			running.completionPromise.then((result: any) => {
-				routeDetachedSubagentCompletionForTest(
-					{
-						sendMessage(message: any, options: any) {
-							sent.push({ message, options });
-						},
-					},
-					running,
-					result,
-				);
-			});
 		}
-
-		const launchedPromise = getLaunchedSubagentResultForTest(blocking);
-		resolveBlocking({
-			name: blocking.name,
-			task: blocking.task,
-			summary: "Blocking gate summary",
-			sessionFile: blocking.sessionFile,
-			exitCode: 0,
-			elapsed: 3,
-		});
-
-		const launched = await launchedPromise;
-		assert.equal((launched.details as any).status, "completed");
-		assert.equal((launched.details as any).deliveryState, "awaited");
-		assert.equal(sent.length, 0);
+		const launchedPromises = [asyncA, blocking, asyncB].map((running) =>
+			getLaunchedSubagentResultForTest(running),
+		);
 
 		resolveAsyncA({
 			name: asyncA.name,
@@ -377,7 +358,15 @@ describe("fork session launch behavior", () => {
 			summary: "Async A summary",
 			sessionFile: asyncA.sessionFile,
 			exitCode: 0,
-			elapsed: 4,
+			elapsed: 2,
+		});
+		resolveBlocking({
+			name: blocking.name,
+			task: blocking.task,
+			summary: "Blocking gate summary",
+			sessionFile: blocking.sessionFile,
+			exitCode: 0,
+			elapsed: 3,
 		});
 		resolveAsyncB({
 			name: asyncB.name,
@@ -387,25 +376,27 @@ describe("fork session launch behavior", () => {
 			exitCode: 0,
 			elapsed: 5,
 		});
-		await sleep(0);
 
-		assert.equal(sent.length, 2);
-		assert.deepEqual(sent.map((entry) => (entry.message.details as any).name).sort(), [
-			"Async A",
-			"Async B",
-		]);
-		assert.equal(
-			getCompletedSubagentResultForTest(blocking.id)?.deliveredTo,
-			"wait",
+		const launched = await Promise.all(launchedPromises);
+		assert.deepEqual(
+			launched.map((result) => (result.details as any).name),
+			["Async A", "Blocking gate", "Async B"],
 		);
-		assert.equal(
-			getCompletedSubagentResultForTest(asyncA.id)?.deliveredTo,
-			"steer",
-		);
-		assert.equal(
-			getCompletedSubagentResultForTest(asyncB.id)?.deliveredTo,
-			"steer",
-		);
+		for (const result of launched) {
+			assert.equal((result.details as any).status, "completed");
+			assert.equal((result.details as any).deliveryState, "awaited");
+			assert.equal((result as any).terminate, undefined);
+		}
+		assert.equal((launched[0].details as any).async, true);
+		assert.equal((launched[0].details as any).blocking, false);
+		assert.equal((launched[2].details as any).async, true);
+		assert.equal((launched[2].details as any).blocking, false);
+		for (const running of [asyncA, asyncB, blocking]) {
+			assert.equal(
+				getCompletedSubagentResultForTest(running.id)?.deliveredTo,
+				"wait",
+			);
+		}
 	});
 
 	it("renders agent badges while preserving detached and awaited styling slots", () => {
@@ -434,20 +425,10 @@ describe("fork session launch behavior", () => {
 			task: "Wait here",
 			deliveryState: "awaited" as const,
 		});
-		setRunningSubagentForTest({
-			...base,
-			id: "child-widget-3",
-			name: "Joined child",
-			agent: "reviewer",
-			task: "Join here",
-			deliveryState: "joined" as const,
-		});
-
 		const widget = renderSubagentWidgetForTest().join("\n");
 		assert.match(widget, /Detached child \[scout\]/);
 		assert.match(widget, /Awaited child \[researcher\]/);
-		assert.match(widget, /Joined child \[reviewer\]/);
-		assert.doesNotMatch(widget, /\[detached\]|\[awaited\]|\[joined\]/);
+		assert.doesNotMatch(widget, /\[detached\]|\[awaited\]/);
 	});
 
 	it("waits for one running subagent and suppresses steer delivery", async () => {

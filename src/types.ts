@@ -1,8 +1,8 @@
 import type { ChildProcess } from "node:child_process";
 
-export type DeliveryState = "detached" | "awaited" | "joined";
+export type DeliveryState = "detached" | "awaited";
 export type ParentClosePolicy = "terminate" | "continue";
-type CompletedDelivery = "steer" | "wait" | "join";
+type CompletedDelivery = "steer" | "wait";
 export type SubagentCompletionStatus = "completed" | "failed" | "cancelled";
 export type ParentShutdownAction = "terminate" | "continue";
 
@@ -26,12 +26,6 @@ export interface WaitParams {
 	id: string;
 	timeout?: number;
 	onTimeout?: "error" | "return_pending" | "detach" | "return";
-}
-
-export interface JoinParams {
-	ids: string[];
-	timeout?: number;
-	onTimeout?: "error" | "return_partial" | "detach" | "return";
 }
 
 interface SubagentPing {

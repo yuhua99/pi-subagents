@@ -55,7 +55,7 @@ export function parseCommandWords(command: string): string[] {
 
 /**
  * Resolve the correct pi binary path for spawn(). Handles node, bun,
- * bundled executables, and opt-in wrapper commands such as `tia pi`.
+ * bundled executables, and opt-in wrapper commands.
  */
 export function getPiInvocation(args: string[]): PiInvocation {
 	const override = process.env.PI_SUBAGENT_PI_COMMAND?.trim();
@@ -67,9 +67,6 @@ export function getPiInvocation(args: string[]): PiInvocation {
 		return { command: parts[0], args: [...parts.slice(1), ...args] };
 	}
 
-	if (isTiaParentProcess()) {
-		return { command: "tia", args: ["pi", ...args] };
-	}
 
 	const currentScript = process.argv[1];
 	if (currentScript && existsSync(currentScript)) {
@@ -91,41 +88,9 @@ export function getPiShellParts(args: string[]): string[] {
 	];
 }
 
-function isTiaParentProcess(): boolean {
-	if (process.env.TIA_ACTIVE === "1") return true;
-	const command = process.env.TIA_COMMAND?.trim();
-	if (command === "tia pi" || command === "tia") return true;
-	const packageDir = process.env.PI_PACKAGE_DIR ?? "";
-	const agentDir = process.env.PI_CODING_AGENT_DIR ?? "";
-	return packageDir.includes("/tia/") || agentDir.includes("/tia/pi-agent");
-}
-
-function shouldUnsetInheritedTiaEnv(invocation: PiInvocation): boolean {
-	const commandName = basename(invocation.command).toLowerCase();
-	const launchedViaEnv =
-		commandName === "env" &&
-		invocation.args.some((arg) => basename(arg).toLowerCase() === "pi");
-	const launchedViaPi =
-		commandName === "pi" || commandName === "pi.exe" || launchedViaEnv;
-	if (!launchedViaPi) return false;
-	const packageDir = process.env.PI_PACKAGE_DIR ?? "";
-	const agentDir = process.env.PI_CODING_AGENT_DIR ?? "";
-	return packageDir.includes("/tia/") || agentDir.includes("/tia/pi-agent");
-}
-
 export function getSubagentChildProcessEnv(
-	invocation: PiInvocation,
+	_invocation: PiInvocation,
 	envVars: Record<string, string>,
 ): NodeJS.ProcessEnv {
-	const env: NodeJS.ProcessEnv = { ...process.env, ...envVars };
-	if (shouldUnsetInheritedTiaEnv(invocation)) {
-		delete env.PI_PACKAGE_DIR;
-		if (
-			!envVars.PI_CODING_AGENT_DIR ||
-			envVars.PI_CODING_AGENT_DIR === process.env.PI_CODING_AGENT_DIR
-		) {
-			delete env.PI_CODING_AGENT_DIR;
-		}
-	}
-	return env;
+	return { ...process.env, ...envVars };
 }

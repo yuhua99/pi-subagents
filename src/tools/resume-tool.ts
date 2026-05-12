@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { AgentToolResult, ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Text } from "@mariozechner/pi-tui";
 import { Type } from "typebox";
 import { getArtifactStorageRoot } from "../artifact-storage.ts";
@@ -12,6 +12,7 @@ import { buildResumePiArgs, buildShellChangeDirectoryPrefix, getResumeCwd, resol
 import type { ResumeToolDetails, RunningSubagent, SubagentResult } from "../types.ts";
 import { getEntryCount } from "../session/session.ts";
 import { getDoneSentinelFile, isResumeMode, readSubagentExtensionEntry, readSubagentLaunchMetadata } from "../session/session-files.ts";
+import { formatTaskPreview, renderSubagentCompletionText } from "./message-renderers.ts";
 
 export interface ResumeToolRuntime {
 	getShellReadyDelayMs(): number;
@@ -21,6 +22,7 @@ export interface ResumeToolRuntime {
 	getWatcherSignal(running: RunningSubagent, controller: AbortController): AbortSignal;
 	wireSubagentSteerBack(pi: ExtensionAPI, running: RunningSubagent, promise: Promise<SubagentResult>): void;
 	startWidgetRefresh(): void;
+	getLaunchedSubagentResult(running: RunningSubagent, signal?: AbortSignal): Promise<AgentToolResult<unknown>>;
 	runningSubagents: Map<string, RunningSubagent>;
 }
 
@@ -54,28 +56,26 @@ export function registerSubagentResumeTool(
 			agent: Type.Optional(Type.String({ description: "Agent name for display. Use the original agent name from the session being resumed." })),
 			mode: Type.Optional(Type.Union([Type.Literal("background"), Type.Literal("interactive")], { description: "Explicit resume mode when launch metadata cannot be inferred. Defaults to the original mode when known, otherwise interactive fallback." })),
 		}),
-		renderCall(args, theme) {
+		renderCall(args, theme, context) {
 			const name = args.name && args.name !== "Resume" ? args.name : "subagent";
 			const agentBadge = args.agent ? theme.fg("dim", ` (${args.agent})`) : "";
-			let text = "▸ " + theme.fg("toolTitle", theme.bold("Resume")) + " " + theme.fg("toolTitle", theme.bold(name)) + agentBadge;
-			const task = args.task ?? "";
-			if (task) {
-				const firstLine = task.split("\n").find((l: string) => l.trim()) ?? "";
-				const preview = firstLine.length > 100 ? `${firstLine.slice(0, 100)}…` : firstLine;
-				if (preview) text += `\n${theme.fg("toolOutput", preview)}`;
-				const totalLines = task.split("\n").length;
-				if (totalLines > 1) text += theme.fg("muted", ` (${totalLines} lines)`);
-			}
-			return new Text(text, 0, 0);
+			const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
+			text.setText("▸ " + theme.fg("toolTitle", theme.bold("Resume")) + " " + theme.fg("accent", theme.bold(name)) + agentBadge + formatTaskPreview(args.task ?? "", context, theme));
+			return text;
 		},
-		renderResult(result, _opts, theme) {
+		renderResult(result, opts, theme, context) {
 			const details = result.details as ResumeToolDetails | undefined;
 			if (details?.status === "started") return new Text("", 0, 0);
+			if (details?.status === "completed" || details?.status === "failed" || details?.status === "cancelled") {
+				return renderSubagentCompletionText(result, opts, theme, context.lastComponent instanceof Text ? context.lastComponent : undefined, true);
+			}
 			const firstContent = result.content?.[0];
 			const text = firstContent?.type === "text" ? firstContent.text : "";
-			return new Text(theme.fg("dim", text), 0, 0);
+			const component = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
+			component.setText(theme.fg("dim", text));
+			return component;
 		},
-		async execute(_toolCallId, params) {
+		async execute(_toolCallId, params, signal) {
 			const sessionFile = params.sessionFile;
 			const task = params.task;
 			const startTime = Date.now();
@@ -155,9 +155,11 @@ export function registerSubagentResumeTool(
 				? runtime.watchBackgroundSubagent(running, runtime.getWatcherSignal(running, watcherAbort))
 				: runtime.watchSubagent(running, runtime.getWatcherSignal(running, watcherAbort));
 			runtime.wireSubagentSteerBack(pi, running, running.completionPromise);
+			const shouldAwait = (running.blocking ?? false) || running.async === false;
+			if (shouldAwait) return runtime.getLaunchedSubagentResult(running, signal);
 			return {
 				content: [{ type: "text", text: `Session "${name}" resumed.` }],
-				details: { id, name, sessionFile, status: "started", mode: metadata.mode, modeSource: metadata.modeSource, agent: metadata.agent, deliveryState: "detached", parentClosePolicy: running.parentClosePolicy, blocking: false, async: true },
+				details: { id, name, sessionFile, status: "started", mode: metadata.mode, modeSource: metadata.modeSource, agent: metadata.agent, deliveryState: "detached", parentClosePolicy: running.parentClosePolicy, blocking: running.blocking ?? false, async: running.async ?? !(running.blocking ?? false) },
 			};
 		},
 	});

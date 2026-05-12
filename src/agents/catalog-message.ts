@@ -52,7 +52,7 @@ export function renderSubagentCatalogReminder(
 		...lines,
 		"Memory label rule: isolated context means the subagent starts a fresh chat and cannot see this conversation, so write a self-contained task with objective, relevant facts/files, constraints, and expected output. forked context means the subagent continues from this conversation on a new branch, so give goal, boundary, and expected output without re-explaining everything.",
 		"Any newer catalog snapshot supersedes older catalog snapshots. Use subagent explicitly.",
-		"Launch independent children in parallel whenever possible; to do that, use a single message with multiple subagent tool calls.",
+		"When launching more than one child for the same request, call subagent once with children: [...] so the runtime starts every child before waiting.",
 	].join("\n");
 	return `<system-reminder>\n${body}\n</system-reminder>`;
 }

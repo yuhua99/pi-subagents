@@ -480,17 +480,14 @@ describe("agent definitions and catalog", () => {
 			tool.promptSnippet,
 			/Agent frontmatter is authoritative for all runtime settings/,
 		);
-		assert.match(tool.promptSnippet, /CRITICAL parallel-launch rule/);
-		assert.match(tool.promptSnippet, /same assistant message\/tool-call batch/);
+		assert.match(tool.promptSnippet, /CRITICAL multi-agent rule/);
+		assert.match(tool.promptSnippet, /call subagent once with children/);
+		assert.match(tool.promptSnippet, /Do not emit separate subagent tool calls/);
 		assert.match(
 			tool.promptSnippet,
-			/Keep launches explicit and use one subagent tool call per child/,
+			/Use exact catalog names in each child agent field/,
 		);
-		assert.match(
-			tool.promptSnippet,
-			/Use exact catalog names in the agent field/,
-		);
-		assert.match(tool.promptSnippet, /launch each named agent exactly once/);
+		assert.match(tool.promptSnippet, /include each named agent exactly once/);
 		assert.match(
 			tool.promptSnippet,
 			/do not reuse one agent as a substitute for another/,
@@ -501,7 +498,7 @@ describe("agent definitions and catalog", () => {
 		);
 		assert.match(
 			tool.promptSnippet,
-			/translate the user's request into the child task/,
+			/translate the user's request into each child task/,
 		);
 		assert.match(
 			tool.promptSnippet,
@@ -532,10 +529,6 @@ describe("agent definitions and catalog", () => {
 		assert.match(
 			tool.promptSnippet,
 			/end the response and let async results arrive by steer/,
-		);
-		assert.match(
-			tool.promptSnippet,
-			/subagent_join only for explicit sync gates or short non-blocking status probes/,
 		);
 		assert.match(
 			tool.promptSnippet,

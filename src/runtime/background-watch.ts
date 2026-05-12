@@ -1,7 +1,7 @@
 import { existsSync, statSync } from "node:fs";
 import { consumeSubagentExitSignal } from "../mux.ts";
 import type { RunningSubagent, SessionEntryLike, SubagentResult } from "../types.ts";
-import { findLastAssistantMessage, getEntries, getEntryCount, getNewEntries } from "../session/session.ts";
+import { findLastSubagentOutput, getEntries, getEntryCount, getNewEntries } from "../session/session.ts";
 import { getTerminalAssistantSummary, shouldReapStableTerminalSummary } from "../agents/titles.ts";
 
 export interface BackgroundWatchRuntime {
@@ -101,6 +101,8 @@ export function watchBackgroundSubagent(
 			const elapsed = Math.floor((Date.now() - running.startTime) / 1000);
 			const exitSignal = consumeSubagentExitSignal(running.sessionFile);
 			const exitCode = exitSignal?.exitCode ?? code ?? 1;
+			const stderr = running.stderrTail?.trim();
+			const stdout = running.stdoutTail?.trim();
 			let summary = `Background agent exited with code ${exitCode}`;
 			if (!running.noSession && existsSync(running.sessionFile)) {
 				const allEntries = getNewEntries(
@@ -108,14 +110,16 @@ export function watchBackgroundSubagent(
 					running.launchEntryCount ?? 0,
 				);
 				summary =
-					findLastAssistantMessage(allEntries) ??
-					(exitCode !== 0
-						? `Background agent exited with code ${exitCode}`
-						: "Background agent exited without output");
-			} else if (running.stdoutTail?.trim()) {
-				summary = running.stdoutTail.trim();
-			} else if (exitCode !== 0 && running.stderrTail?.trim()) {
-				summary = `Background agent exited with code ${exitCode}\n\n${running.stderrTail.trim()}`;
+					findLastSubagentOutput(allEntries) ??
+					(exitCode !== 0 && stderr
+						? `Background agent exited with code ${exitCode}\n\n${stderr}`
+						: exitCode !== 0
+							? `Background agent exited with code ${exitCode}`
+							: stdout || "Background agent exited without output");
+			} else if (stdout) {
+				summary = stdout;
+			} else if (exitCode !== 0 && stderr) {
+				summary = `Background agent exited with code ${exitCode}\n\n${stderr}`;
 			}
 			finish({
 				name: running.name,

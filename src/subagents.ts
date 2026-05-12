@@ -35,7 +35,6 @@ import {
 	getLaunchedSubagentResult,
 	getShellReadyDelayMs,
 	getWatcherSignal,
-	joinSubagentResults,
 	launchBackgroundSubagent,
 	launchSubagent,
 	moduleAbortController,
@@ -56,7 +55,6 @@ export {
 	getPiShellPartsForTest,
 	getStartedSubagentDetailsForTest,
 	getSubagentChildProcessEnvForTest,
-	joinSubagentsForTest,
 	renderSubagentWidgetForTest,
 	resetSubagentStateForTest,
 	routeDetachedSubagentCompletionForTest,
@@ -65,6 +63,7 @@ export {
 	waitForSubagentForTest,
 } from "./runtime/wiring.ts";
 import {
+	markSubagentBatchBlocking,
 	requestSubagentBatchStop,
 	resetSubagentBatchStopRequest,
 } from "./runtime/state.ts";
@@ -72,6 +71,7 @@ import { registerSubagentCommands } from "./tools/commands.ts";
 import { registerSubagentMessageRenderers } from "./tools/message-renderers.ts";
 import { registerSubagentResumeTool } from "./tools/resume-tool.ts";
 import { registerSubagentCoreTools } from "./tools/subagent-tools.ts";
+export { markSubagentBatchBlocking as markSubagentBatchBlockingForTest } from "./runtime/state.ts";
 export * from "./testing/test-helpers.ts";
 
 export function loadAgentDefaults(
@@ -161,10 +161,9 @@ export default function subagentsExtension(pi: ExtensionAPI) {
 		if (!shouldRegister("subagent")) return;
 		if (ctx.sessionManager.getHeader()?.parentSession) return;
 
-		// Reset the cached signature on every fresh session so that module-level
-		// state does not persist across TIA sessions. The reload path still uses
-		// the cached signature to avoid duplicating the notification within the
-		// same session.
+		// Reset the cached signature on every fresh session so module-level state
+		// does not leak between sessions. The reload path still uses the cached
+		// signature to avoid duplicating the notification within the same session.
 		if (event.reason !== "reload") {
 			lastAmbientCatalogSignature = null;
 		}
@@ -231,12 +230,12 @@ export default function subagentsExtension(pi: ExtensionAPI) {
 				: null;
 		const agentError = getSubagentAgentRequirementError(input, agentDefs);
 		const agentOverrideError = getSubagentAgentOverrideError(input, agentDefs);
-		if (
-			!agentError &&
-			!agentOverrideError &&
-			!resolveSubagentBlocking(input, agentDefs)
-		) {
-			requestSubagentBatchStop();
+		if (!agentError && !agentOverrideError) {
+			if (resolveSubagentBlocking(input, agentDefs)) {
+				markSubagentBatchBlocking();
+			} else {
+				requestSubagentBatchStop();
+			}
 		}
 		return {};
 	});
@@ -286,7 +285,6 @@ export default function subagentsExtension(pi: ExtensionAPI) {
 		wireSubagentSteerBack,
 		startWidgetRefresh,
 		getLaunchedSubagentResult,
-		joinSubagentResults,
 		stopRunningSubagent,
 		muxUnavailableResult: () => muxUnavailableResult("tab-title"),
 	});
@@ -299,6 +297,7 @@ export default function subagentsExtension(pi: ExtensionAPI) {
 		getWatcherSignal,
 		wireSubagentSteerBack,
 		startWidgetRefresh,
+		getLaunchedSubagentResult,
 		runningSubagents,
 	});
 

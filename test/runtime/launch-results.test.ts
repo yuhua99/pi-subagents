@@ -9,6 +9,7 @@ import {
 	subagentsExtension,
 	getCompletedSubagentResultForTest,
 	getLaunchedSubagentResultForTest,
+	markSubagentBatchBlockingForTest,
 	getSubagentCatalogSignatureForTest,
 	renderSubagentCatalogReminderForTest,
 	resetSubagentStateForTest,
@@ -159,10 +160,10 @@ describe("subagent launch result delivery", () => {
 		);
 	});
 
-	it("marks a later sync result as terminating after an async launch in the same batch", async () => {
-		const sent: Array<{ message: any; options: any }> = [];
+	it("awaits async children when the current subagent batch has a sync child", async () => {
+		markSubagentBatchBlockingForTest();
 		const asyncRunning = {
-			id: "child-mixed-async-terminate",
+			id: "child-mixed-async-awaited",
 			name: "Async child",
 			task: "Start work",
 			mode: "background" as const,
@@ -172,58 +173,30 @@ describe("subagent launch result delivery", () => {
 			blocking: false,
 			async: true,
 			startTime: Date.now(),
-			sessionFile: "/tmp/child-mixed-async-terminate.jsonl",
-		};
-		const syncRunning = {
-			id: "child-mixed-sync-terminate",
-			name: "Sync child",
-			task: "Gate work",
-			mode: "background" as const,
-			executionState: "running" as const,
-			deliveryState: "detached" as const,
-			parentClosePolicy: "terminate" as const,
-			blocking: true,
-			async: false,
-			startTime: Date.now(),
-			sessionFile: "/tmp/child-mixed-sync-terminate.jsonl",
+			sessionFile: "/tmp/child-mixed-async-awaited.jsonl",
 			completionPromise: Promise.resolve({
-				name: "Sync child",
-				task: "Gate work",
-				summary: "Done",
-				sessionFile: "/tmp/child-mixed-sync-terminate.jsonl",
+				name: "Async child",
+				task: "Start work",
+				summary: "Async done",
+				sessionFile: "/tmp/child-mixed-async-awaited.jsonl",
 				exitCode: 0,
 				elapsed: 1,
 			}),
 		};
 
 		setRunningSubagentForTest(asyncRunning as any);
-		setRunningSubagentForTest(syncRunning as any);
 		const asyncResult = (await getLaunchedSubagentResultForTest(
 			asyncRunning as any,
 		)) as any;
-		routeDetachedSubagentCompletionForTest(
-			{
-				sendMessage(message: any, options: any) {
-					sent.push({ message, options });
-				},
-			},
-			asyncRunning as any,
-			{
-				name: asyncRunning.name,
-				task: asyncRunning.task,
-				summary: "Async done",
-				sessionFile: asyncRunning.sessionFile,
-				exitCode: 0,
-				elapsed: 1,
-			},
+		assert.equal((asyncResult.details as any).status, "completed");
+		assert.equal((asyncResult.details as any).deliveryState, "awaited");
+		assert.equal((asyncResult.details as any).blocking, false);
+		assert.equal((asyncResult.details as any).async, true);
+		assert.equal(asyncResult.terminate, undefined);
+		assert.equal(
+			getCompletedSubagentResultForTest(asyncRunning.id)?.deliveredTo,
+			"wait",
 		);
-		const syncResult = (await getLaunchedSubagentResultForTest(
-			syncRunning as any,
-		)) as any;
-		assert.equal(sent.length, 1);
-		assert.equal(asyncResult.terminate, true);
-		assert.equal((syncResult.details as any).status, "completed");
-		assert.equal(syncResult.terminate, true);
 	});
 
 	it("does not mark mixed async and sync launch results as terminating when coordinator-only turn stop is disabled", async () => {
@@ -412,7 +385,7 @@ describe("subagent launch result delivery", () => {
 		assert.doesNotMatch(message.content, /subagents_list/);
 		assert.match(
 			message.content,
-			/Launch independent children in parallel whenever possible; to do that, use a single message with multiple subagent tool calls\./,
+			/call subagent once with children: \[\.\.\.\] so the runtime starts every child before waiting/,
 		);
 		assert.equal(
 			handlers.get("before_agent_start")({

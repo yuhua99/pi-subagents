@@ -6,7 +6,7 @@ import type {
 	SubagentResult,
 	WaitParams,
 } from "../types.ts";
-import type { WaitJoinRuntime } from "./wait-join.ts";
+import type { WaitRuntime } from "./wait.ts";
 
 function getSubagentWaitPingResult(
 	running: RunningSubagent,
@@ -88,7 +88,7 @@ function getSubagentWaitErrorResult(
 }
 
 function releaseSubagentWaitOwnership(
-	runtime: WaitJoinRuntime,
+	runtime: WaitRuntime,
 	running: RunningSubagent,
 	ownerId: string,
 ): void {
@@ -103,7 +103,7 @@ function releaseSubagentWaitOwnership(
 
 export async function waitForSubagentResult(
 	params: WaitParams,
-	runtime: WaitJoinRuntime,
+	runtime: WaitRuntime,
 	signal?: AbortSignal,
 ) {
 	const match = runtime.findTrackedSubagent(params.id);

@@ -12,7 +12,7 @@ interface TrackedSubagentMatch {
 	error?: string;
 }
 
-export interface WaitJoinRuntime {
+export interface WaitRuntime {
 	runningSubagents: Map<string, RunningSubagent>;
 	completedSubagentResults: Map<string, CompletedSubagentResult>;
 	findTrackedSubagent(query: string): TrackedSubagentMatch;
@@ -27,5 +27,4 @@ export interface WaitJoinRuntime {
 	): CompletedSubagentResult;
 }
 
-export { joinSubagentResults } from "./join-result.ts";
 export { waitForSubagentResult } from "./wait-result.ts";

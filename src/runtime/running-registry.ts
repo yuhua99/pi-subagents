@@ -12,6 +12,7 @@ import {
 	clearSubagentShutdownTimer,
 	completedSubagentResults,
 	getSubagentBatchStopMetadata,
+	isSubagentBatchBlocking,
 	requestSubagentBatchStop,
 	runningSubagents,
 	stopAfterCurrentSubagentBatch,
@@ -171,7 +172,7 @@ function getStartedSubagentResult(running: RunningSubagent) {
 					(isAsync
 						? `Results will be delivered automatically as a steer message when it finishes. `
 						: `The parent is waiting for this result before continuing. `) +
-					`Use this exact id for subagent_join when you need an explicit sync gate.`,
+					`Use this exact id if you need to resume or stop this child.`,
 			},
 		],
 		details: getStartedSubagentDetails(running),
@@ -184,7 +185,8 @@ export async function getLaunchedSubagentResult(
 	runtime: RunningRegistryRuntime,
 	signal?: AbortSignal,
 ) {
-	if (!running.blocking) return getStartedSubagentResult(running);
+	const parentShouldWait = (running.blocking ?? false) || isSubagentBatchBlocking();
+	if (!parentShouldWait) return getStartedSubagentResult(running);
 	const result = await runtime.waitForSubagentResult({ id: running.id }, signal);
 	return runtime.withSubagentBatchStop(runtime.asSubagentToolResult(result));
 }

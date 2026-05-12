@@ -84,9 +84,19 @@ export function asSubagentToolResult(result: unknown): SubagentToolResult {
 
 export const moduleAbortController = initializeModuleReloadState();
 export let stopAfterCurrentSubagentBatch = false;
+let currentSubagentBatchHasBlocking = false;
 
 export function resetSubagentBatchStopRequest(): void {
 	stopAfterCurrentSubagentBatch = false;
+	currentSubagentBatchHasBlocking = false;
+}
+
+export function markSubagentBatchBlocking(): void {
+	currentSubagentBatchHasBlocking = true;
+}
+
+export function isSubagentBatchBlocking(): boolean {
+	return currentSubagentBatchHasBlocking;
 }
 
 function isCoordinatorOnlyTurnDisabled(): boolean {
@@ -106,7 +116,7 @@ export function getCoordinatorOnlyTurnPrompt(): string {
 }
 
 export function getSubagentBatchStopMetadata(): { terminate?: true } {
-	return stopAfterCurrentSubagentBatch ? { terminate: true } : {};
+	return stopAfterCurrentSubagentBatch && !currentSubagentBatchHasBlocking ? { terminate: true } : {};
 }
 
 export function withSubagentBatchStop<T extends AgentToolResult<unknown>>(

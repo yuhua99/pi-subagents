@@ -7,16 +7,16 @@ import { closeSurface, readScreenAsync } from "../mux.ts";
 import { launchInteractiveSubagent, type InteractiveLaunchRuntime } from "../launch/interactive.ts";
 import { watchSubagent as watchSubagentWithRuntime, type InteractiveWatchRuntime } from "./interactive-watch.ts";
 import { shutdownSubagentsForParentExit as shutdownSubagentsForParentExitWithRuntime, terminateBackgroundChildProcess, type ShutdownRuntime, type ShutdownSubagentsOptions } from "./shutdown.ts";
-import type { CompletedSubagentResult, JoinParams, RunningSubagent, SubagentParamsInput, SubagentResult, WaitParams } from "../types.ts";
+import type { CompletedSubagentResult, RunningSubagent, SubagentParamsInput, SubagentResult, WaitParams } from "../types.ts";
 import type { SubagentLaunchContext } from "../launch/prep.ts";
 import { getStartedSubagentDetails, getLaunchedSubagentResult as getLaunchedSubagentResultWithRuntime, routeDetachedSubagentCompletion as routeDetachedSubagentCompletionWithDeps, stopRunningSubagent as stopRunningSubagentWithDeps, wireSubagentSteerBack as wireSubagentSteerBackWithDeps, deliverCompletedSubagentResultViaSteer as deliverCompletedSubagentResultViaSteerWithDeps, findTrackedSubagent } from "./running-registry.ts";
-import { joinSubagentResults as joinSubagentResultsWithRuntime, waitForSubagentResult as waitForSubagentResultWithRuntime, type WaitJoinRuntime } from "./wait-join.ts";
+import { waitForSubagentResult as waitForSubagentResultWithRuntime, type WaitRuntime } from "./wait.ts";
 import { asSubagentToolResult, cacheCompletedSubagentResult, clearSubagentShutdownTimer, completedSubagentResults, moduleAbortController, resetRuntimeStateForTest, runningSubagents, widgetManager, withSubagentBatchStop } from "./state.ts";
 
 export { getWatcherSignal, moduleAbortController, runningSubagents, widgetManager } from "./state.ts";
 
-export function formatElapsed(ms: number): string {
-	const s = Math.round(ms / 1000);
+export function formatElapsed(seconds: number): string {
+	const s = Math.round(seconds);
 	const m = Math.floor(s / 60);
 	return m > 0 ? `${m}m ${s % 60}s` : `${s}s`;
 }
@@ -136,7 +136,7 @@ export function wireSubagentSteerBack(
 	wireSubagentSteerBackWithDeps(pi, running, watchPromise, formatElapsed, updateWidget);
 }
 
-function getWaitJoinRuntime(): WaitJoinRuntime {
+function getWaitRuntime(): WaitRuntime {
 	return {
 		runningSubagents,
 		completedSubagentResults,
@@ -148,27 +148,11 @@ function getWaitJoinRuntime(): WaitJoinRuntime {
 }
 
 async function waitForSubagentResult(params: WaitParams, signal?: AbortSignal) {
-	return waitForSubagentResultWithRuntime(params, getWaitJoinRuntime(), signal);
+	return waitForSubagentResultWithRuntime(params, getWaitRuntime(), signal);
 }
 
 export function waitForSubagentForTest(params: WaitParams, signal?: AbortSignal) {
 	return waitForSubagentResult(params, signal);
-}
-
-export async function joinSubagentResults(
-	params: JoinParams,
-	signal?: AbortSignal,
-	pi?: Pick<ExtensionAPI, "sendMessage">,
-) {
-	return joinSubagentResultsWithRuntime(params, getWaitJoinRuntime(), signal, pi);
-}
-
-export function joinSubagentsForTest(
-	params: JoinParams,
-	signal?: AbortSignal,
-	pi?: Pick<ExtensionAPI, "sendMessage">,
-) {
-	return joinSubagentResults(params, signal, pi);
 }
 
 function getBackgroundLaunchRuntime(): BackgroundLaunchRuntime {

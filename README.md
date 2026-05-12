@@ -125,19 +125,19 @@ Sync launch:
 2. parent waits
 3. tool result contains the child result
 
-#### subagent_join
+#### Mixed sync and async batches
 
-`subagent_join` waits for a set of children and returns their results in one response. Without it, launching N children async means N separate steer messages across N turns, each forcing a context re-read. With `subagent_join`, you get all results in one tool call:
+When one tool-call batch contains at least one sync/blocking subagent, the whole batch becomes a barrier. Pi still launches every child with its own frontmatter, so an `async: true` child keeps async launch metadata for resume, but the parent waits until every child in that batch completes and receives all results as tool results.
 
 ```
-subagent(...), subagent(...), subagent(...) → all launch
-join([id1, id2, id3])                        → blocks until all finish
-→ returns one grouped result
+subagent(sync), subagent(async), subagent(async) → all launch
+→ parent waits until all three finish
+→ returns all three completed results
 ```
 
-Accepts `timeout` and `onTimeout: "return_partial"` to proceed with partial results when some children are slow.
+Pure async batches stay detached: the parent receives started results and child results arrive later by steer.
 
-After an async launch, the parent should get out of the way unless it has separate work. If the parent keeps solving the delegated task, you paid for two agents to race each other.
+After a pure async launch, the parent should get out of the way unless it has separate work. If the parent keeps solving the delegated task, you paid for two agents to race each other.
 
 By default, a successful async launch ends the parent turn after the current tool batch. The children keep running. Their results come back later.
 
@@ -295,13 +295,13 @@ Disable child session titles with `PI_SUBAGENT_DISABLE_SESSION_TITLES=1`.
 By default, the extension launches children with the same Pi entrypoint it can infer from the parent. If your real Pi command goes through a wrapper, set it:
 
 ```bash
-PI_SUBAGENT_PI_COMMAND="tia pi" tia pi
+PI_SUBAGENT_PI_COMMAND="my-wrapper pi" my-wrapper pi
 ```
 
 The wrapper applies to new children and resumed children. Quoted paths work:
 
 ```bash
-PI_SUBAGENT_PI_COMMAND="'/path with spaces/tia' pi" pi
+PI_SUBAGENT_PI_COMMAND="'/path with spaces/my-wrapper' pi" pi
 ```
 
 ## Environment variables
@@ -310,7 +310,7 @@ User-facing knobs:
 
 | Variable | Use |
 | --- | --- |
-| `PI_SUBAGENT_PI_COMMAND` | Launch children through a wrapper such as `tia pi` |
+| `PI_SUBAGENT_PI_COMMAND` | Launch children through a wrapper command |
 | `PI_SUBAGENT_MUX` | Force `cmux`, `tmux`, `zellij`, or `wezterm` |
 | `PI_CODING_AGENT_DIR` | Use a different Pi agent config root |
 | `PI_SUBAGENT_DISABLE_AMBIENT_AWARENESS` | Disable ambient awareness |
@@ -353,7 +353,6 @@ npm test
 Live tests:
 
 ```bash
-PI_SUBAGENT_ALLOW_LIVE_WINDOWS=1 npm run test:e2e-live
 PI_SUBAGENT_ALLOW_LIVE_WINDOWS=1 npm run test:e2e-live-blocking
 PI_SUBAGENT_ALLOW_LIVE_WINDOWS=1 npm run test:e2e-live-mix-blocking
 npm run test:e2e-live-deny-tools
