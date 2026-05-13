@@ -65,6 +65,7 @@ function getSubagentWaitSuccessResult(cached: CompletedSubagentResult) {
 			agent: cached.agent,
 			status: cached.status,
 			mode: cached.mode,
+			parentClosePolicy: cached.parentClosePolicy,
 			deliveryState: "awaited" as const,
 			blocking: cached.blocking,
 			async: cached.async,
