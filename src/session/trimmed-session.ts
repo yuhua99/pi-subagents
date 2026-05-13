@@ -96,15 +96,25 @@ function hasSuccessfulAssistant(entry: ParsedEntry): boolean {
 	return stopReason !== "aborted" && stopReason !== "error";
 }
 
+/**
+ * Tool call content blocks can use different type strings depending on the
+ * upstream API provider: "toolCall" (OpenAI), "toolUse" (Anthropic/Google),
+ * or potentially other variants. Check both.
+ */
+function isToolCallBlock(block: unknown): block is Record<string, unknown> {
+	if (!block || typeof block !== "object") return false;
+	const type = (block as Record<string, unknown>).type;
+	return type === "toolCall" || type === "toolUse";
+}
+
 function hasToolCallId(entry: ParsedEntry, toolCallId: string): boolean {
 	const msg = getMessage(entry);
 	if (msg?.role !== "assistant") return false;
 	const content = msg.content;
 	if (!Array.isArray(content)) return false;
 	return content.some((block) => {
-		if (!block || typeof block !== "object") return false;
-		const maybeToolCall = block as Record<string, unknown>;
-		return maybeToolCall.type === "toolCall" && maybeToolCall.id === toolCallId;
+		if (!isToolCallBlock(block)) return false;
+		return block.id === toolCallId;
 	});
 }
 
@@ -169,6 +179,38 @@ function getLatestTokenSegment(
 	return { entries: entries.slice(segmentStart), totalTokens };
 }
 
+/**
+ * Check if a toolCallId exists in any assistant entry at or after `fromIndex`.
+ */
+function hasToolCallIdInRange(
+	entries: ParsedEntry[],
+	fromIndex: number,
+	toolCallId: string,
+): boolean {
+	for (let i = fromIndex; i < entries.length; i++) {
+		if (hasToolCallId(entries[i], toolCallId)) return true;
+	}
+	return false;
+}
+
+/**
+ * Check if an entry is a toolResult with an orphaned tool call reference
+ * (the tool call was excluded by the trim).
+ */
+function isOrphanedToolResult(
+	entry: ParsedEntry,
+	entries: ParsedEntry[],
+	trimStart: number,
+): boolean {
+	if (entry.parsed.type !== "message") return false;
+	const msg = entry.parsed.message as Record<string, unknown> | undefined;
+	if (msg?.role !== "toolResult") return false;
+	const toolCallId = msg.toolCallId as string | undefined;
+	if (!toolCallId) return false;
+	// The tool call is orphaned if it doesn't appear in any entry at or after trimStart.
+	return !hasToolCallIdInRange(entries, trimStart, toolCallId);
+}
+
 function findTrimStart(
 	entries: ParsedEntry[],
 	totalTokens: number,
@@ -183,7 +225,18 @@ function findTrimStart(
 		if (!usage) continue;
 
 		if (previousAssistantTokens >= overflow) {
-			return previousAssistantIndex + 1;
+			const start = previousAssistantIndex + 1;
+			// Skip orphaned tool results whose tool calls were excluded by the trim.
+			// The openai-responses API rejects conversations with tool results that
+			// reference non-existent tool call IDs.
+			let adjusted = start;
+			while (
+				adjusted < entries.length &&
+				isOrphanedToolResult(entries[adjusted], entries, start)
+			) {
+				adjusted++;
+			}
+			return adjusted;
 		}
 
 		previousAssistantTokens = getCumulativeInputTokens(usage);

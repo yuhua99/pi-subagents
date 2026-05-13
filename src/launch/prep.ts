@@ -53,6 +53,8 @@ export interface PreparedSubagentLaunch {
 	effectiveExtensions?: string[];
 	identity: string;
 	identityInSystemPrompt: boolean;
+	/** Original agent-level auto-exit, preserved before any headless-mode override. */
+	agentAutoExit?: boolean;
 }
 
 function loadAgentDefaults(
@@ -75,8 +77,11 @@ export function prepareSubagentLaunch(
 	const agentDefs = params.agent
 		? loadAgentDefaults(params.agent, params.cwd, ctx.cwd)
 		: null;
+	// Preserve the original agent-level auto-exit before any headless-mode override
+	// so that persisted metadata always reflects the agent file, not the runtime override.
+	const agentAutoExit = agentDefs?.autoExit;
 	// Apply headless-mode auto-exit override so downstream consumers (mode hint,
-	// env vars, deny set, metadata) all see the effective value.
+	// env vars, running state) all see the effective runtime value.
 	if (ctx.autoExit !== undefined && agentDefs) {
 		agentDefs.autoExit = ctx.autoExit;
 	}
@@ -128,6 +133,7 @@ export function prepareSubagentLaunch(
 		effectiveExtensions,
 		identity,
 		identityInSystemPrompt,
+		agentAutoExit,
 	};
 }
 
@@ -248,8 +254,8 @@ export function buildPersistedSubagentLaunchMetadata(
 		...(params.agent ? { agent: params.agent } : {}),
 		mode,
 		sessionMode,
-		...(prepared.agentDefs?.autoExit !== undefined
-			? { autoExit: prepared.agentDefs.autoExit }
+		...(prepared.agentAutoExit !== undefined
+			? { autoExit: prepared.agentAutoExit }
 			: {}),
 		parentClosePolicy: resolveSubagentParentClosePolicy(prepared.agentDefs),
 		blocking: params.blocking === true,

@@ -91,6 +91,12 @@ async function launchOneSubagent(
 ): Promise<RunningSubagent> {
 	const headlessAutoExit = !ctx.hasUI && agentDefs?.autoExit !== true ? true : undefined;
 	const effectiveParams = enforceAgentFrontmatter(params, agentDefs);
+	// In headless mode there is no steer mechanism, so async subagent results
+	// would be lost. Force blocking to deliver the result synchronously.
+	if (!ctx.hasUI) {
+		effectiveParams.async = false;
+		effectiveParams.blocking = true;
+	}
 	const isBackground = effectiveParams.background ?? agentDefs?.mode === "background";
 	const childModelRef = effectiveParams.model ?? agentDefs?.model;
 	const childModelContextWindow = resolveModelContextWindow(ctx, childModelRef);
