@@ -358,64 +358,100 @@ export class SubagentWidgetManager {
 		theme: WidgetThemeLike,
 	): string[] {
 		const agents = [...this.getAgents()];
-		if (agents.length === 0) return [];
+		const agentName = process.env.PI_SUBAGENT_NAME?.trim();
+		const agentFile = process.env.PI_SUBAGENT_AGENT?.trim();
+		const isChildSession = !!agentName;
+
+		// If no running subagents and not a child session, show nothing
+		if (agents.length === 0 && !isChildSession) return [];
 
 		const width = tui?.terminal?.columns ?? 80;
-		const spinner = SPINNER[this.widgetFrame % SPINNER.length] ?? "●";
-		const oldestStartTime = Math.min(...agents.map((agent) => agent.startTime));
-		const lines: string[] = [
-			theme.fg("accent", "●") +
-				" " +
-				theme.fg("accent", "Agents") +
-				theme.fg(
-					"dim",
-					` · ${agents.length} running · ${formatElapsedMs(oldestStartTime)}`,
-				),
-		];
+		const lines: string[] = [];
 
-		for (let i = 0; i < agents.length; i++) {
-			const agent = agents[i]!;
-			const isLast = i === agents.length - 1;
-			const connector = isLast ? "└─" : "├─";
-			const childConnector = isLast ? "   " : "│  ";
-			const stats: string[] = [];
+		// Show running subagents section
+		if (agents.length > 0) {
+			const spinner = SPINNER[this.widgetFrame % SPINNER.length] ?? "●";
+			const oldestStartTime = Math.min(
+				...agents.map((agent) => agent.startTime),
+			);
+			lines.push(
+				theme.fg("accent", "●") +
+					" " +
+					theme.fg("accent", "Agents") +
+					theme.fg(
+						"dim",
+						` · ${agents.length} running · ${formatElapsedMs(oldestStartTime)}`,
+					),
+			);
 
-			const toolUses = agent.toolUses ?? 0;
-			if (toolUses > 0) {
-				stats.push(`${toolUses} tool use${toolUses === 1 ? "" : "s"}`);
-			}
-			if (agent.contextLabel) {
-				stats.push(agent.contextLabel);
-			} else {
-				const totalTokens = agent.totalTokens ?? 0;
-				if (totalTokens > 0)
-					stats.push(`${formatCompactCount(totalTokens)} tokens`);
-			}
+			for (let i = 0; i < agents.length; i++) {
+				const agent = agents[i]!;
+				const isLast = i === agents.length - 1;
+				const connector = isLast ? "└─" : "├─";
+				const childConnector = isLast ? "   " : "│  ";
+				const stats: string[] = [];
 
-			const header =
-				theme.fg("dim", connector) +
-				` ${theme.fg("accent", spinner)} ${theme.bold(agent.name)} ${renderAgentBadge(theme, agent)}` +
-				(stats.length > 0
-					? ` ${theme.fg("dim", "·")} ${theme.fg("dim", stats.join(" · "))}`
-					: "");
-			lines.push(header);
+				const toolUses = agent.toolUses ?? 0;
+				if (toolUses > 0) {
+					stats.push(
+						`${toolUses} tool use${toolUses === 1 ? "" : "s"}`,
+					);
+				}
+				if (agent.contextLabel) {
+					stats.push(agent.contextLabel);
+				} else {
+					const totalTokens = agent.totalTokens ?? 0;
+					if (totalTokens > 0)
+						stats.push(`${formatCompactCount(totalTokens)} tokens`);
+				}
 
-			const displayTitle =
-				agent.taskPreview ?? firstNonEmptyLine(agent.title ?? agent.task, 46);
-			if (displayTitle) {
+				const header =
+					theme.fg("dim", connector) +
+					` ${theme.fg("accent", spinner)} ${theme.bold(agent.name)} ${renderAgentBadge(theme, agent)}` +
+					(stats.length > 0
+						? ` ${theme.fg("dim", "·")} ${theme.fg("dim", stats.join(" · "))}`
+						: "");
+				lines.push(header);
+
+				const displayTitle =
+					agent.taskPreview ??
+					firstNonEmptyLine(agent.title ?? agent.task, 46);
+				if (displayTitle) {
+					lines.push(
+						theme.fg("dim", childConnector) +
+							theme.fg("muted", `  ${displayTitle}`),
+					);
+				}
+
+				const activity = agent.activity ?? "starting…";
 				lines.push(
 					theme.fg("dim", childConnector) +
-						theme.fg("muted", `  ${displayTitle}`),
+						theme.fg("dim", `  ${activity}`),
 				);
 			}
 
-			const activity = agent.activity ?? "starting…";
+			// Blank line between subagent list and self-agent info
+			if (isChildSession) lines.push("");
+		}
+
+		// Show self-agent info (if this is a child session)
+		if (isChildSession) {
+			const agentSuffix = agentFile
+				? ` ${theme.fg("muted", `(${agentFile})`)}`
+				: "";
 			lines.push(
-				theme.fg("dim", childConnector) + theme.fg("dim", `  ${activity}`),
+				theme.fg("toolTitle", "▸") +
+					" " +
+					theme.fg("toolTitle", "Agent") +
+					": " +
+					theme.bold(agentName) +
+					agentSuffix,
 			);
 		}
 
-		const leftPadding = " ".repeat(Math.min(WIDGET_HORIZONTAL_PADDING, width));
+		const leftPadding = " ".repeat(
+			Math.min(WIDGET_HORIZONTAL_PADDING, width),
+		);
 		const contentWidth = Math.max(0, width - leftPadding.length);
 
 		return lines.map(
