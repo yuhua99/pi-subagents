@@ -162,6 +162,8 @@ export function registerSubagentCoreTools(
 			"- If a helper returns later, continue only with clearly independent work. Do not redo delegated work and do not claim the helper's findings before its later message appears.\n" +
 			"- If no safe independent work is clear, stop your response and wait for the later helper message.\n" +
 			"- Ask the user only when there is a plausible next step but ownership is ambiguous.\n" +
+			"Results arrive automatically as a steer message that starts a new turn. " +
+			"Do not poll, sleep-read, or check session files — the harness handles delivery.\n" +
 			getCoordinatorOnlyTurnPrompt(),
 		parameters: SubagentParams,
 		execute: async (toolCallId, params, signal, _onUpdate, ctx) => {

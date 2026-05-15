@@ -33,28 +33,33 @@ describe("subagent-done.ts", () => {
 	});
 
 	describe("shouldAutoExitOnAgentEnd", () => {
-		it("auto-exits after normal completion when there was no takeover", () => {
+		it("auto-exits after normal completion", () => {
 			const messages = [{ role: "assistant", stopReason: "stop" }];
-			assert.equal(shouldAutoExitOnAgentEnd(false, messages), true);
+			assert.equal(shouldAutoExitOnAgentEnd(messages), true);
 		});
 
-		it("stays open after user takeover for that cycle", () => {
+		it("auto-exits after normal completion even when the user sent the prompt", () => {
 			const messages = [{ role: "assistant", stopReason: "stop" }];
-			assert.equal(shouldAutoExitOnAgentEnd(true, messages), false);
+			assert.equal(shouldAutoExitOnAgentEnd(messages), true);
 		});
 
 		it("stays open after Escape aborts the run", () => {
 			const messages = [{ role: "assistant", stopReason: "aborted" }];
-			assert.equal(shouldAutoExitOnAgentEnd(false, messages), false);
+			assert.equal(shouldAutoExitOnAgentEnd(messages), false);
+		});
+
+		it("auto-exits after provider error when there are no usable text messages", () => {
+			const messages = [{ role: "assistant", stopReason: "error", errorMessage: "Provider overload" }];
+			assert.equal(shouldAutoExitOnAgentEnd(messages), true);
 		});
 
 		it("defaults to auto-exit when there are no assistant messages", () => {
 			const messages = [{ role: "user" }, { role: "toolResult" }];
-			assert.equal(shouldAutoExitOnAgentEnd(false, messages), true);
+			assert.equal(shouldAutoExitOnAgentEnd(messages), true);
 		});
 
 		it("defaults to auto-exit when messages are missing", () => {
-			assert.equal(shouldAutoExitOnAgentEnd(false, undefined), true);
+			assert.equal(shouldAutoExitOnAgentEnd(undefined), true);
 		});
 	});
 

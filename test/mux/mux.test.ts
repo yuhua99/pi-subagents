@@ -396,10 +396,20 @@ case "$1" in
     printf 'pane:42\n'
     ;;
   identify)
-    printf '{"caller":{"pane_ref":"pane:42"}}\n'
+    if [ "$2" = "--surface" ]; then
+      printf '{"caller":{"surface_ref":"%s","pane_ref":"pane:42"}}\n' "$3"
+    else
+      printf '{"focused":{"surface_ref":"surface:99","pane_ref":"pane:42"},"caller":{"surface_ref":"surface:99","pane_ref":"pane:42"}}\n'
+    fi
     ;;
   new-split|new-surface)
-    printf 'surface:42\n'
+    printf 'surface:42 pane:7\n'
+    ;;
+  rename-tab)
+    printf 'OK\n'
+    ;;
+  focus-pane|focus-panel)
+    # no-op
     ;;
   read-screen)
     cat "$FAKE_CMUX_SCREEN"
@@ -428,7 +438,8 @@ esac
 			closeSurface(secondSurface);
 
 			const log = readFileSync(logFile, "utf8");
-			assert.match(log, /new-split right --focus true/);
+			assert.match(log, /new-split right/);
+			assert.doesNotMatch(log, /--focus/);
 			assert.doesNotMatch(log, /new-surface/);
 			assert.match(log, /rename-tab/);
 			assert.match(log, /workspace-action/);

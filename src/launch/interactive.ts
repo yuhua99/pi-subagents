@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { CHILD_CONTEXT_BOUNDARY_SYSTEM_PROMPT } from "./context-boundary.ts";
 import {
 	getPiShellParts,
@@ -94,7 +95,7 @@ export async function launchInteractiveSubagent(
 	const parts = getPiShellParts(getPreparedSessionLaunchArgs(prepared));
 	const { boundarySystemPrompt: shouldWriteChildBoundary } =
 		seedPreparedSubagentSession(prepared, params, ctx, sessionMode, noSession);
-	const subagentDonePath = join(dirname(dirname(new URL(import.meta.url).pathname)), "tools", "subagent-done.ts");
+	const subagentDonePath = join(dirname(dirname(fileURLToPath(import.meta.url))), "tools", "subagent-done.ts");
 	for (const arg of getPreparedExtensionLaunchArgs(prepared, subagentDonePath)) {
 		parts.push(shellEscape(arg));
 	}

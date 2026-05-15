@@ -301,13 +301,11 @@ export default function (pi: ExtensionAPI) {
 		pi.on("agent_end", (event, ctx) => {
 			const messages = event.messages as Parameters<
 				typeof shouldAutoExitOnAgentEnd
-			>[1];
-			const shouldExit = shouldAutoExitOnAgentEnd(userTookOver, messages);
+			>[0];
+			const shouldExit = shouldAutoExitOnAgentEnd(messages);
 			if (!shouldExit) {
-				// User sent input after the agent had started, or the run was interrupted
-				// with Escape. Reset takeover so auto-exit can re-engage on the next
-				// normal completion cycle.
-				userTookOver = false;
+				// Agent turn was aborted (Escape). Leave the session open for
+				// inspection or another prompt.
 				return;
 			}
 

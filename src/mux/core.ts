@@ -17,11 +17,25 @@ function hasCommand(command: string): boolean {
 	if (cached && cached.path === path) return cached.available;
 
 	let available = false;
-	try {
-		execSync(`command -v ${command}`, { stdio: "ignore" });
-		available = true;
-	} catch {
-		available = false;
+	if (process.platform === "win32") {
+		try {
+			execFileSync("where.exe", [command], { stdio: "ignore" });
+			available = true;
+		} catch {
+			try {
+				execSync(`command -v ${command}`, { stdio: "ignore" });
+				available = true;
+			} catch {
+				available = false;
+			}
+		}
+	} else {
+		try {
+			execSync(`command -v ${command}`, { stdio: "ignore" });
+			available = true;
+		} catch {
+			available = false;
+		}
 	}
 
 	commandAvailability.set(command, { path, available });

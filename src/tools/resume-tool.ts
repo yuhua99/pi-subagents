@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { AgentToolResult, ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Text } from "@mariozechner/pi-tui";
 import { Type } from "typebox";
@@ -47,7 +48,8 @@ export function registerSubagentResumeTool(
 			"\n" +
 			"Provide sessionFile from the earlier subagent output. If you include task, it is sent as the next instruction in that resumed session.\n" +
 			"\n" +
-			"The resumed helper may run in a visible terminal or hidden process depending on saved metadata or the mode argument. The tool usually returns after starting it; the helper's final report appears later in this chat when it finishes. Do not invent or assume resumed-session results before that later message appears.",
+			"The resumed helper may run in a visible terminal or hidden process depending on saved metadata or the mode argument. The tool usually returns after starting it; the helper's final report appears later in this chat when it finishes. Do not invent or assume resumed-session results before that later message appears. " +
+			"The result arrives automatically as a steer message. Do not poll for it.",
 		parameters: Type.Object({
 			sessionFile: Type.String({ description: "Path to the session .jsonl file to resume" }),
 			name: Type.Optional(Type.String({ description: "Display name for the terminal tab. Default: 'Resume'" })),
@@ -107,7 +109,7 @@ export function registerSubagentResumeTool(
 				}
 			}
 			const entryCountBefore = getEntryCount(sessionFile);
-			const subagentDonePath = join(dirname(new URL(import.meta.url).pathname), "subagent-done.ts");
+			const subagentDonePath = join(dirname(fileURLToPath(import.meta.url)), "subagent-done.ts");
 			const savedExtensions = launchMetadata?.extensions ?? readSubagentExtensionEntry(sessionFile);
 			const extensionArgs = savedExtensions ? getExtensionLaunchArgs(savedExtensions, subagentDonePath) : ["--no-extensions", "-e", subagentDonePath];
 			const parityArgs = [...getPersistedPromptLaunchArgs(launchMetadata), ...getPersistedSessionParityArgs(launchMetadata)];

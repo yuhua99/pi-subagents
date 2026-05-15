@@ -13,3 +13,4 @@ import "./runtime/shutdown-policy.test.ts";
 import "./runtime/resume-tool.test.ts";
 import "./launch/helpers.test.ts";
 import "./mux/mux.test.ts";
+import "./mux/zellij-placement.test.ts";

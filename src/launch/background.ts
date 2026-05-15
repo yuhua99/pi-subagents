@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
 	getPiInvocation,
 	getSubagentChildProcessEnv,
@@ -49,7 +50,7 @@ export async function launchBackgroundSubagent(
 	const id = Math.random().toString(16).slice(2, 10);
 	const prepared = prepareSubagentLaunch(params, ctx);
 	const subagentDonePath = join(
-		dirname(dirname(new URL(import.meta.url).pathname)),
+		dirname(dirname(fileURLToPath(import.meta.url))),
 		"tools",
 		"subagent-done.ts",
 	);

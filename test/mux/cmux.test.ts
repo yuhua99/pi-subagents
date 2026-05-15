@@ -38,15 +38,24 @@ const args = process.argv.slice(2);
 if (log) fs.appendFileSync(log, JSON.stringify(args) + "\\n");
 const cmd = args[0];
 if (cmd === "new-split") {
-  console.log("OK surface:101 workspace:1");
+  console.log("surface:101 pane:9");
 } else if (cmd === "new-surface") {
-  console.log("OK surface:102 pane:9 workspace:1");
+  console.log("surface:102 pane:9");
 } else if (cmd === "rename-tab") {
-  console.log("OK rename-tab");
+  console.log("OK");
 } else if (cmd === "identify") {
-  console.log(JSON.stringify({ caller: { pane_ref: "pane:9" } }));
+  const sub = args[1];
+  if (sub === "--surface") {
+    console.log(JSON.stringify({ caller: { surface_ref: args[2], pane_ref: "pane:9" } }));
+  } else {
+    console.log(JSON.stringify({ focused: { surface_ref: "surface:99", pane_ref: "pane:9" }, caller: { surface_ref: "surface:99", pane_ref: "pane:9" } }));
+  }
 } else if (cmd === "tree") {
   console.log("workspace:1\\n  pane:9");
+} else if (cmd === "focus-pane") {
+  // no-op in test
+} else if (cmd === "focus-panel") {
+  // no-op in test
 } else {
   console.error("unexpected cmux command", args.join(" "));
   process.exit(2);
@@ -70,26 +79,31 @@ function readLog(log: string): string[][] {
 }
 
 describe("cmux surface creation", () => {
-	it("focuses new cmux splits so terminal-backed read-screen works", () => {
+	it("creates cmux splits without stealing focus", () => {
 		const { dir, log } = installFakeCmux();
 		try {
-			assert.equal(createSurfaceSplit("Focused Split", "right"), "surface:101");
+			assert.equal(createSurfaceSplit("Focus-Free Split", "right"), "surface:101");
 			const calls = readLog(log);
+			// Should capture focus identify before the split
+			const identifyIdx = calls.findIndex((args) => args[0] === "identify" && args[1] === "--json");
+			const splitIdx = calls.findIndex((args) => args[0] === "new-split");
+			assert.ok(identifyIdx >= 0, "expected identify --json call");
+			assert.ok(splitIdx >= 0, "expected new-split call");
 			assert.ok(
-				calls.some(
+				!calls.some(
 					(args) =>
 						args[0] === "new-split" &&
-						args.includes("right") &&
 						args.includes("--focus") &&
 						args.includes("true"),
 				),
+				"should NOT use --focus true",
 			);
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
 		}
 	});
 
-	it("creates separate focused cmux splits for separate interactive subagents", () => {
+	it("creates separate cmux splits for separate interactive subagents", () => {
 		const { dir, log } = installFakeCmux();
 		try {
 			assert.equal(createSurface("First"), "surface:101");
@@ -101,8 +115,7 @@ describe("cmux surface creation", () => {
 				splitCalls.every(
 					(args) =>
 						args.includes("right") &&
-						args.includes("--focus") &&
-						args.includes("true"),
+						!args.includes("--focus"),
 				),
 			);
 			assert.equal(
