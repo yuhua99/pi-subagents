@@ -32,8 +32,7 @@ export function buildCompletedSubagentResult(
 		status: getSubagentCompletionStatus(result),
 		deliveryState: running.deliveryState,
 		parentClosePolicy: running.parentClosePolicy,
-		blocking: running.blocking ?? false,
-		async: running.async ?? !(running.blocking ?? false),
+		async: running.async !== false,
 		autoExit: running.autoExit,
 		deliveredTo: null,
 	};

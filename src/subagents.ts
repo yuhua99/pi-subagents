@@ -70,6 +70,7 @@ import { registerSubagentCommands } from "./tools/commands.ts";
 import { registerSubagentMessageRenderers } from "./tools/message-renderers.ts";
 import { registerSubagentResumeTool } from "./tools/resume-tool.ts";
 import { registerSubagentCoreTools } from "./tools/subagent-tools.ts";
+import { registerSubagentsView } from "./tools/subagents-view.ts";
 export { markSubagentBatchBlocking as markSubagentBatchBlockingForTest } from "./runtime/state.ts";
 export { requestSubagentBatchStop as requestSubagentBatchStopForTest } from "./runtime/state.ts";
 export { getSubagentBatchStopMetadata as getSubagentBatchStopMetadataForTest } from "./runtime/state.ts";
@@ -389,4 +390,16 @@ Your most important job is synthesis: reading sub-agent outputs, understanding t
 	});
 
 	registerSubagentMessageRenderers(pi, formatElapsed);
+
+	registerSubagentsView(pi, {
+		getShellReadyDelayMs,
+		isMuxAvailable,
+		watchBackgroundSubagent,
+		watchSubagent,
+		getWatcherSignal,
+		startWidgetRefresh,
+		runningSubagents,
+		pi,
+		wireSubagentSteerBack,
+	});
 }

@@ -155,8 +155,7 @@ export function getStartedSubagentDetails(
 		mode: running.mode,
 		deliveryState: running.deliveryState,
 		parentClosePolicy: running.parentClosePolicy,
-		blocking: running.blocking ?? false,
-		async: running.async ?? !(running.blocking ?? false),
+		async: running.async !== false,
 		autoExit: running.autoExit,
 	};
 }

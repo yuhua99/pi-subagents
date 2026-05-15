@@ -43,7 +43,6 @@ describe("subagent launch result delivery", () => {
 			running as any,
 		)) as any;
 		assert.equal((result.details as any).status, "started");
-		assert.equal((result.details as any).blocking, false);
 		assert.equal(result.terminate, true);
 	});
 
@@ -190,7 +189,6 @@ describe("subagent launch result delivery", () => {
 		)) as any;
 		assert.equal((asyncResult.details as any).status, "completed");
 		assert.equal((asyncResult.details as any).deliveryState, "awaited");
-		assert.equal((asyncResult.details as any).blocking, false);
 		assert.equal((asyncResult.details as any).async, true);
 		assert.equal(asyncResult.terminate, undefined);
 		assert.equal(

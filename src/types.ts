@@ -53,7 +53,8 @@ export interface CompletedSubagentResult extends SubagentResult {
 	status: SubagentCompletionStatus;
 	deliveryState: DeliveryState;
 	parentClosePolicy: ParentClosePolicy;
-	blocking: boolean;
+	/** @deprecated compat — stop writing. Readers treat blocking: true as async: false. */
+	blocking?: boolean;
 	async: boolean;
 	autoExit?: boolean;
 	deliveredTo: CompletedDelivery | null;
@@ -108,7 +109,6 @@ export interface StartedSubagentToolDetails {
 	error?: string;
 	deliveryState?: string;
 	parentClosePolicy?: string;
-	blocking?: boolean;
 	async?: boolean;
 	autoExit?: boolean;
 }

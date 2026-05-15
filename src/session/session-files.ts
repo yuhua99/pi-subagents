@@ -33,7 +33,8 @@ export interface PersistedSubagentLaunchMetadata {
 	sessionMode: SubagentSessionMode;
 	autoExit?: boolean;
 	parentClosePolicy: ParentClosePolicy;
-	blocking: boolean;
+	/** @deprecated compat — stop writing. Readers treat `blocking: true` as `async: false`. */
+	blocking?: boolean;
 	async: boolean;
 	model?: string;
 	thinking?: string;

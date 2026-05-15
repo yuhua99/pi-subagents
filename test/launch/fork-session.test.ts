@@ -160,7 +160,6 @@ describe("fork session launch behavior", () => {
 		assert.equal(started.mode, "background");
 		assert.equal(started.deliveryState, "detached");
 		assert.equal(started.parentClosePolicy, "terminate");
-		assert.equal(started.blocking, false);
 
 		const cached = routeDetachedSubagentCompletionForTest(
 			{
@@ -185,7 +184,6 @@ describe("fork session launch behavior", () => {
 		assert.equal((sent[0].message.details as any).deliveryState, "detached");
 		assert.equal((sent[0].message.details as any).parentClosePolicy, "terminate");
 		assert.equal((sent[0].message.details as any).status, "completed");
-		assert.equal((sent[0].message.details as any).blocking, false);
 
 		assert.equal(cached.deliveredTo, "steer");
 		assert.equal(cached.deliveryState, "detached");
@@ -277,7 +275,6 @@ describe("fork session launch behavior", () => {
 		const launched = await launchedPromise;
 		assert.equal((launched.details as any).status, "completed");
 		assert.equal((launched.details as any).deliveryState, "awaited");
-		assert.equal((launched.details as any).blocking, true);
 		assert.equal((launched.details as any).summary, "Blocking completion summary");
 		assert.match(launched.content[0].text, /Blocking completion summary/);
 		assert.equal(sent.length, 0);
@@ -388,9 +385,7 @@ describe("fork session launch behavior", () => {
 			assert.equal((result as any).terminate, undefined);
 		}
 		assert.equal((launched[0].details as any).async, true);
-		assert.equal((launched[0].details as any).blocking, false);
 		assert.equal((launched[2].details as any).async, true);
-		assert.equal((launched[2].details as any).blocking, false);
 		for (const running of [asyncA, asyncB, blocking]) {
 			assert.equal(
 				getCompletedSubagentResultForTest(running.id)?.deliveredTo,

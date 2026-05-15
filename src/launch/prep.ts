@@ -258,7 +258,6 @@ export function buildPersistedSubagentLaunchMetadata(
 			? { autoExit: prepared.agentAutoExit }
 			: {}),
 		parentClosePolicy: resolveSubagentParentClosePolicy(prepared.agentDefs),
-		blocking: params.blocking === true,
 		async: params.async !== false,
 		...(prepared.effectiveModel ? { model: prepared.effectiveModel } : {}),
 		...(prepared.effectiveThinking
