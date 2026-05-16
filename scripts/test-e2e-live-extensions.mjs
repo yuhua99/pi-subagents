@@ -16,6 +16,8 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { LIVE_TEST_MODEL } from "./live-test-guard.mjs";
 
+const piBin = process.env.PI_E2E_PI_BIN ?? "pi";
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, "..");
 const extensionSource = join(repoRoot, "src", "index.ts");
@@ -27,16 +29,14 @@ const extensionsDir = join(configDir, "extensions");
 const allowedExtensionFile = join(extensionsDir, "live-e2e-allowed.ts");
 const blockedExtensionFile = join(extensionsDir, "live-e2e-blocked.ts");
 const snapshotsDir = join(tmpRoot, "snapshots");
-const envConfigDir = process.env.PI_CODING_AGENT_DIR;
-const sourceConfigDir = envConfigDir && existsSync(join(envConfigDir, "auth.json"))
-  ? envConfigDir
-  : join(homedir(), ".pi", "agent");
+// Always source from the real user config.
+const sourceConfigDir = join(homedir(), ".pi", "agent");
 const keepTmp = process.env.PI_SUBAGENT_KEEP_E2E_TMP === "1";
 const prompt = [
   "The subagent tool is available in this session.",
   "Use exactly this sequence.",
-  'Call subagent with name "Live Default Child", agent "live-e2e-ext-default", title "Live default extension check", task "Follow your exact built-in instructions."., and async false.',
-  'Call subagent with name "Live Allow Child", agent "live-e2e-ext-allow", title "Live allow extension check", task "Follow your exact built-in instructions."., and async false.',
+  'Call subagent with name "live-default-child", agent "live-e2e-ext-default", title "Live default extension check", task "Follow your exact built-in instructions."., and async false.',
+  'Call subagent with name "live-allow-child", agent "live-e2e-ext-allow", title "Live allow extension check", task "Follow your exact built-in instructions."., and async false.',
   'After both tool calls return, reply with exactly "LIVE_E2E_EXTENSIONS_OK" and nothing else.',
   "Do not call any other tools.",
 ].join(" ");
@@ -52,12 +52,12 @@ for (const name of ["auth.json", "settings.json", "models.json", "mcp.json"]) {
 
 writeFileSync(
   join(agentsDir, "live-e2e-ext-default.md"),
-  `---\nname: live-e2e-ext-default\ndescription: Live extensions default-load smoke test agent.\nthinking: high\nauto-exit: true\nmode: background\nblocking: true\nspawning: false\nextensions: ${allowedExtensionFile}, ${blockedExtensionFile}\n---\n\nFirst call \`allowed_probe_tool\`.\nThen call \`blocked_probe_tool\`.\nThen reply with exactly \`LIVE_EXT_DEFAULT_OK\`.`,
+  `---\nname: live-e2e-ext-default\ndescription: Live extensions default-load smoke test agent.\nthinking: high\nauto-exit: true\nmode: background\nasync: false\nspawning: false\nextensions: ${allowedExtensionFile}, ${blockedExtensionFile}\n---\n\nFirst call \`allowed_probe_tool\`.\nThen call \`blocked_probe_tool\`.\nThen reply with exactly \`LIVE_EXT_DEFAULT_OK\`.`,
   "utf8",
 );
 writeFileSync(
   join(agentsDir, "live-e2e-ext-allow.md"),
-  `---\nname: live-e2e-ext-allow\ndescription: Live extensions allowlist smoke test agent.\nthinking: high\nauto-exit: true\nmode: background\nblocking: true\nspawning: false\nextensions: ./extensions/live-e2e-allowed.ts\n---\n\nCall \`allowed_probe_tool\` exactly once.\nThen reply with exactly \`LIVE_EXT_ALLOW_OK\`.`,
+  `---\nname: live-e2e-ext-allow\ndescription: Live extensions allowlist smoke test agent.\nthinking: high\nauto-exit: true\nmode: background\nasync: false\nspawning: false\nextensions: ./extensions/live-e2e-allowed.ts\n---\n\nCall \`allowed_probe_tool\` exactly once.\nThen reply with exactly \`LIVE_EXT_ALLOW_OK\`.`,
   "utf8",
 );
 
@@ -199,7 +199,7 @@ function readSnapshot(agentName) {
 
 try {
   execFileSync(
-    "pi",
+    piBin,
     [
       "-p",
       "--model",
@@ -225,6 +225,7 @@ try {
         PI_SUBAGENT_AUTO_EXIT: "",
         PI_SUBAGENT_EXTENSIONS: "",
         PI_DENY_TOOLS: "",
+        PI_SUBAGENT_PI_COMMAND: piBin,
         PI_ARTIFACT_PROJECT_ROOT: "",
       },
     },
@@ -253,8 +254,8 @@ try {
     if (details.status !== "completed") {
       throw new Error(`Expected completed status, got ${details.status ?? "missing"}.`);
     }
-    if (details.blocking !== true) {
-      throw new Error(`Expected blocking true, got ${details.blocking ?? "missing"}.`);
+    if (details.async !== false) {
+      throw new Error(`Expected async false, got ${details.async ?? "missing"}.`);
     }
     if (!details.sessionFile || !existsSync(details.sessionFile)) {
       throw new Error("Missing child sessionFile.");
@@ -262,8 +263,8 @@ try {
     byName.set(details.name, details);
   }
 
-  const defaultDetails = byName.get("Live Default Child");
-  const allowDetails = byName.get("Live Allow Child");
+  const defaultDetails = byName.get("live-default-child");
+  const allowDetails = byName.get("live-allow-child");
   if (!defaultDetails || !allowDetails) {
     throw new Error(`Missing expected child results. Names seen: ${JSON.stringify([...byName.keys()])}`);
   }

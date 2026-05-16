@@ -135,6 +135,10 @@ export async function pollForExit(
 				const exitSignal = consumeSubagentExitSignal(options.sessionFile);
 				if (exitSignal) return exitSignal;
 			}
+			if (options.doneSentinelFile) {
+				const sentinel = readDoneSentinel(options.doneSentinelFile);
+				if (sentinel) return sentinel;
+			}
 			throw new Error("Failed to read subagent surface while polling for exit");
 		}
 

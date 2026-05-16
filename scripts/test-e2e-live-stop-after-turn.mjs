@@ -15,6 +15,8 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { LIVE_TEST_MODEL } from "./live-test-guard.mjs";
 
+const piBin = process.env.PI_E2E_PI_BIN ?? "pi";
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, "..");
 const extensionSource = join(repoRoot, "src", "index.ts");
@@ -22,22 +24,14 @@ const tmpRoot = join(tmpdir(), `pi-subagents-live-stop-after-turn-${process.pid}
 const configDir = join(tmpRoot, "agent");
 const workDir = join(tmpRoot, "work");
 const agentsDir = join(workDir, ".pi", "agents");
-const singleSessionDir = join(tmpRoot, "single-sessions");
-const mixedSessionDir = join(tmpRoot, "mixed-sessions");
 const optOutSingleSessionDir = join(tmpRoot, "opt-out-single-sessions");
-const optOutMixedSessionDir = join(tmpRoot, "opt-out-mixed-sessions");
-const envConfigDir = process.env.PI_CODING_AGENT_DIR;
-const sourceConfigDir = envConfigDir && existsSync(join(envConfigDir, "auth.json"))
-  ? envConfigDir
-  : join(homedir(), ".pi", "agent");
+// Always source from the real user config.
+const sourceConfigDir = join(homedir(), ".pi", "agent");
 const keepTmp = process.env.PI_SUBAGENT_KEEP_E2E_TMP === "1";
 
 mkdirSync(configDir, { recursive: true });
 mkdirSync(agentsDir, { recursive: true });
-mkdirSync(singleSessionDir, { recursive: true });
-mkdirSync(mixedSessionDir, { recursive: true });
 mkdirSync(optOutSingleSessionDir, { recursive: true });
-mkdirSync(optOutMixedSessionDir, { recursive: true });
 for (const name of ["auth.json", "settings.json", "models.json", "mcp.json"]) {
   const source = join(sourceConfigDir, name);
   if (existsSync(source)) copyFileSync(source, join(configDir, name));
@@ -45,12 +39,7 @@ for (const name of ["auth.json", "settings.json", "models.json", "mcp.json"]) {
 
 writeFileSync(
   join(agentsDir, "live-stop-bg.md"),
-  `---\nname: live-stop-bg\ndescription: Async child for stop-after-turn live regression.\nthinking: off\nauto-exit: true\nmode: background\nblocking: false\n---\n\nReply exactly: LIVE_STOP_BG_OK`,
-  "utf8",
-);
-writeFileSync(
-  join(agentsDir, "live-stop-sync.md"),
-  `---\nname: live-stop-sync\ndescription: Sync child for mixed stop-after-turn live regression.\nthinking: off\nauto-exit: true\nmode: background\nblocking: true\n---\n\nReply exactly: LIVE_STOP_SYNC_OK`,
+  `---\nname: live-stop-bg\ndescription: Async child for stop-after-turn live regression.\nthinking: off\nauto-exit: true\nmode: background\nasync: true\n---\n\nReply exactly: LIVE_STOP_BG_OK`,
   "utf8",
 );
 
@@ -116,7 +105,7 @@ function findParentSession(sessionDir, marker) {
 
 function runPi(sessionDir, prompt, extraEnv = {}) {
   execFileSync(
-    "pi",
+    piBin,
     [
       "-p",
       "--model",
@@ -141,6 +130,7 @@ function runPi(sessionDir, prompt, extraEnv = {}) {
         PI_SUBAGENT_NAME: "",
         PI_SUBAGENT_AUTO_EXIT: "",
         PI_DENY_TOOLS: "",
+        PI_SUBAGENT_PI_COMMAND: piBin,
         PI_ARTIFACT_PROJECT_ROOT: "",
         PI_SUBAGENT_DISABLE_COORDINATOR_ONLY_TURN: "",
         ...extraEnv,
@@ -157,51 +147,6 @@ function assertNoContinuation(events, forbiddenText) {
 }
 
 try {
-  const singleMarker = "LIVE_STOP_SINGLE_MARKER";
-  runPi(
-    singleSessionDir,
-    [
-      singleMarker,
-      'First write exactly: "I’ll wait for the async child result unless you want me to work on something else while we wait."',
-      'Then call subagent with name "live-stop-bg", agent "live-stop-bg", title "Live stop async check", task "Run the async stop-after-turn check."., and async true.',
-      "Do not call any other tools. If the runtime continues after the tool result, write BAD_CONTINUED_SINGLE.",
-    ].join("\n"),
-  );
-
-  const single = findParentSession(singleSessionDir, singleMarker);
-  const singleResults = getToolResults(single.events, "subagent");
-  if (singleResults.length !== 1) throw new Error(`Expected one async subagent result, got ${singleResults.length}.`);
-  if (singleResults[0].details?.status !== "started") {
-    throw new Error(`Expected async subagent status started, got ${singleResults[0].details?.status ?? "missing"}.`);
-  }
-  if (singleResults[0].details?.async !== true) {
-    throw new Error("Expected async subagent result to report async true.");
-  }
-  assertNoContinuation(single.events, "BAD_CONTINUED_SINGLE");
-
-  const mixedMarker = "LIVE_STOP_MIXED_MARKER";
-  runPi(
-    mixedSessionDir,
-    [
-      mixedMarker,
-      "In one assistant response, call subagent twice and do not call any other tools.",
-      'Call subagent with name "live-stop-bg", agent "live-stop-bg", title "Live mixed async check", task "Run the mixed async stop-after-turn check."., and async true.',
-      'Call subagent with name "live-stop-sync", agent "live-stop-sync", title "Live mixed sync check", task "Run the mixed sync stop-after-turn check."., and async false.',
-      "If the runtime continues after the tool results, write BAD_CONTINUED_MIXED.",
-    ].join("\n"),
-  );
-
-  const mixed = findParentSession(mixedSessionDir, mixedMarker);
-  const mixedResults = getToolResults(mixed.events, "subagent");
-  if (mixedResults.length !== 2) throw new Error(`Expected two mixed subagent results, got ${mixedResults.length}.`);
-  if (!mixedResults.some((result) => result.details?.status === "started" && result.details?.async === true)) {
-    throw new Error("Mixed run did not include a started async subagent result.");
-  }
-  if (!mixedResults.some((result) => result.details?.status === "completed" && result.details?.async === false)) {
-    throw new Error("Mixed run did not include a completed sync subagent result.");
-  }
-  assertNoContinuation(mixed.events, "BAD_CONTINUED_MIXED");
-
   const optOutSingleMarker = "LIVE_STOP_OPT_OUT_SINGLE_MARKER";
   runPi(
     optOutSingleSessionDir,
@@ -220,45 +165,16 @@ try {
   if (optOutSingleResults.length !== 1) {
     throw new Error(`Expected one opt-out async subagent result, got ${optOutSingleResults.length}.`);
   }
-  if (optOutSingleResults[0].details?.status !== "started" || optOutSingleResults[0].details?.async !== true) {
-    throw new Error("Opt-out single run did not include a started async subagent result.");
+  const optOutSingleDetails = optOutSingleResults[0].details ?? {};
+  if (!optOutSingleDetails.sessionFile || !existsSync(optOutSingleDetails.sessionFile)) {
+    throw new Error("Opt-out async subagent result missing sessionFile.");
   }
   const optOutSingleTexts = getAssistantTexts(optOutSingle.events).join("\n");
   if (!optOutSingleTexts.includes("OPT_OUT_SINGLE_CONTINUED")) {
     throw new Error("Opt-out single run did not continue after async subagent launch.");
   }
 
-  const optOutMixedMarker = "LIVE_STOP_OPT_OUT_MIXED_MARKER";
-  runPi(
-    optOutMixedSessionDir,
-    [
-      optOutMixedMarker,
-      "Use exactly this sequence in one assistant response.",
-      'Call subagent with name "live-stop-bg", agent "live-stop-bg", title "Live opt out mixed async check", task "Run the opt-out mixed async check."., and async true.',
-      'Call subagent with name "live-stop-sync", agent "live-stop-sync", title "Live opt out mixed sync check", task "Run the opt-out mixed sync check."., and async false.',
-      'After both subagent tool results, write exactly "OPT_OUT_MIXED_CONTINUED" and nothing else.',
-      "Do not call any other tools.",
-    ].join("\n"),
-    { PI_SUBAGENT_DISABLE_COORDINATOR_ONLY_TURN: "1" },
-  );
-
-  const optOutMixed = findParentSession(optOutMixedSessionDir, optOutMixedMarker);
-  const optOutMixedResults = getToolResults(optOutMixed.events, "subagent");
-  if (optOutMixedResults.length !== 2) {
-    throw new Error(`Expected two opt-out mixed subagent results, got ${optOutMixedResults.length}.`);
-  }
-  if (!optOutMixedResults.some((result) => result.details?.status === "started" && result.details?.async === true)) {
-    throw new Error("Opt-out mixed run did not include a started async subagent result.");
-  }
-  if (!optOutMixedResults.some((result) => result.details?.status === "completed" && result.details?.async === false)) {
-    throw new Error("Opt-out mixed run did not include a completed sync subagent result.");
-  }
-  const optOutMixedTexts = getAssistantTexts(optOutMixed.events).join("\n");
-  if (!optOutMixedTexts.includes("OPT_OUT_MIXED_CONTINUED")) {
-    throw new Error("Opt-out mixed run did not continue after async and sync subagent launch batch.");
-  }
-
-  console.log(`live stop-after-turn ok: default async/mixed stop and opt-out continuation verified (${LIVE_TEST_MODEL})`);
+  console.log(`live stop-after-turn ok: opt-out continuation verified (${LIVE_TEST_MODEL})`);
 } finally {
   if (!keepTmp) {
     try {

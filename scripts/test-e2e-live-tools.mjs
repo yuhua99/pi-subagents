@@ -16,6 +16,8 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { LIVE_TEST_MODEL } from "./live-test-guard.mjs";
 
+const piBin = process.env.PI_E2E_PI_BIN ?? "pi";
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, "..");
 const extensionSource = join(repoRoot, "src", "index.ts");
@@ -25,10 +27,8 @@ const configDir = join(tmpRoot, "agent");
 const outputDir = join(tmpRoot, "snapshots");
 const globalExtensionsDir = join(configDir, "extensions");
 const extensionFile = join(globalExtensionsDir, "live-e2e-tools-snapshot.ts");
-const envConfigDir = process.env.PI_CODING_AGENT_DIR;
-const sourceConfigDir = envConfigDir && existsSync(join(envConfigDir, "auth.json"))
-  ? envConfigDir
-  : join(homedir(), ".pi", "agent");
+// Always source from the real user config.
+const sourceConfigDir = join(homedir(), ".pi", "agent");
 const keepTmp = process.env.PI_SUBAGENT_KEEP_E2E_TMP === "1";
 const builtinTools = ["read", "bash", "edit", "write", "grep", "find", "ls"];
 const cases = [
@@ -59,7 +59,7 @@ for (const name of ["auth.json", "settings.json", "models.json", "mcp.json"]) {
 function writeAgent(name, toolsLine) {
   writeFileSync(
     join(configDir, "agents", `${name}.md`),
-    `---\nname: ${name}\ndescription: Live tools frontmatter smoke test agent.\nthinking: off\nauto-exit: true\nmode: background\nblocking: true\nspawning: false\nextensions: ${extensionFile}\n${toolsLine ? `${toolsLine}\n` : ""}---\n\nReply with exactly \`${name.toUpperCase().replaceAll("-", "_")}_OK\`.`,
+    `---\nname: ${name}\ndescription: Live tools frontmatter smoke test agent.\nthinking: off\nauto-exit: true\nmode: background\nasync: false\nspawning: false\nextensions: ${extensionFile}\n${toolsLine ? `${toolsLine}\n` : ""}---\n\nReply with exactly \`${name.toUpperCase().replaceAll("-", "_")}_OK\`.`,
     "utf8",
   );
 }
@@ -191,7 +191,7 @@ function assertToolSnapshot(agent, snapshot) {
 
 try {
   execFileSync(
-    "pi",
+    piBin,
     [
       "-p",
       "--model",
@@ -216,6 +216,7 @@ try {
         PI_SUBAGENT_NAME: "",
         PI_SUBAGENT_AUTO_EXIT: "",
         PI_DENY_TOOLS: "",
+        PI_SUBAGENT_PI_COMMAND: piBin,
         PI_ARTIFACT_PROJECT_ROOT: "",
       },
     },
@@ -240,7 +241,7 @@ try {
     if (!result) throw new Error(`Missing subagent result for ${agent}.`);
     const details = result.details ?? {};
     if (details.status !== "completed") throw new Error(`${agent}: expected completed status, got ${details.status ?? "missing"}.`);
-    if (details.blocking !== true) throw new Error(`${agent}: expected blocking true, got ${details.blocking ?? "missing"}.`);
+    if (details.async !== false) throw new Error(`${agent}: expected blocking true, got ${details.blocking ?? "missing"}.`);
     if (!details.sessionFile || !existsSync(details.sessionFile)) throw new Error(`${agent}: missing child sessionFile.`);
 
     const childEvents = parseJsonl(details.sessionFile);

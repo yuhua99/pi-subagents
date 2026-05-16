@@ -72,8 +72,16 @@ describe("subagent-done.ts", () => {
 			assert.equal(shouldRegisterSubagentDone(false, ["subagent_done"]), false);
 		});
 
-		it("keeps subagent_done for manual-close agents", () => {
+		it("keeps subagent_done for manual-close background agents", () => {
 			assert.equal(shouldRegisterSubagentDone(false, []), true);
+		});
+
+		it("hides subagent_done for manual-close interactive agents", () => {
+			assert.equal(shouldRegisterSubagentDone(false, [], true), false);
+		});
+
+		it("hides subagent_done for auto-exit interactive agents", () => {
+			assert.equal(shouldRegisterSubagentDone(true, [], true), false);
 		});
 	});
 

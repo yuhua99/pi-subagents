@@ -137,6 +137,7 @@ export async function resumeSubagentSession(
 	if (resumedAgent) resumeEnvVars.PI_SUBAGENT_AGENT = resumedAgent;
 	resumeEnvVars.PI_SUBAGENT_SESSION = sessionFile;
 
+	const resumedAsync = launchMetadata?.async ?? metadata.async ?? true;
 	const resumedAutoExit =
 		launchMetadata?.autoExit ?? metadata.autoExit ?? true;
 	if (resumedAutoExit) resumeEnvVars.PI_SUBAGENT_AUTO_EXIT = "1";
@@ -155,7 +156,8 @@ export async function resumeSubagentSession(
 			launchMetadata?.parentClosePolicy ??
 			metadata.parentClosePolicy ??
 			"terminate",
-		async: launchMetadata?.async ?? true,
+		async: resumedAsync,
+		blocking: resumedAsync === false,
 		autoExit: resumedAutoExit,
 		startTime: Date.now(),
 		sessionFile,
@@ -206,7 +208,9 @@ export async function resumeSubagentSession(
 		const resumeEnvPrefix = `${Object.entries(resumeEnvVars)
 			.map(([key, value]) => `${key}=${shellEscape(value)}`)
 			.join(" ")} `;
-		const command = `${buildShellChangeDirectoryPrefix(resumeCwd)}${resumeEnvPrefix}${parts.join(" ")}; printf '__SUBAGENT_DONE_'${exitStatusVar()}__'\\''\n' | tee ${shellEscape(doneSentinelFile)}`;
+		const sentinelPath = shellEscape(doneSentinelFile);
+		const exitVar = exitStatusVar();
+		const command = `trap 'printf "__SUBAGENT_DONE_${exitVar}__\\n" | tee ${sentinelPath}' EXIT; ${buildShellChangeDirectoryPrefix(resumeCwd)}${resumeEnvPrefix}${parts.join(" ")}`;
 		sendShellCommand(surface, command);
 		if (task) {
 			await new Promise<void>((resolve) =>

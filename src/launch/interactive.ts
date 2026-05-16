@@ -76,10 +76,10 @@ export async function launchInteractiveSubagent(
 	}
 	const modeHint = prepared.agentDefs?.autoExit
 		? "Complete your task autonomously."
-		: "Manual lifecycle: do not stop after your final text. After completing the task, you MUST call the subagent_done tool unless you intentionally need the human operator to close this foreground pane. If operator close is required, say exactly `MANUAL CLOSE REQUIRED:` followed by the reason and wait for the operator. The user can interact with you at any time.";
+		: "Manual lifecycle: the operator must close this foreground pane when done. Stay in this pane and wait for the operator to interact with you. Do not exit on your own. The operator can interact with you at any time.";
 	const summaryInstruction = prepared.agentDefs?.autoExit
 		? "Your FINAL assistant message should summarize what you accomplished."
-		: "Your FINAL assistant message before calling subagent_done, or before asking for manual close, should summarize what you accomplished. After that final message, immediately call subagent_done.";
+		: "After writing your response, stay in this pane for operator interaction. Do not exit. The operator will close the pane when finished.";
 	const agentType = params.agent ?? params.name;
 	const tabTitleInstruction =
 		!isSetTabTitleToolEnabled() || prepared.denySet.has("set_tab_title")
@@ -163,7 +163,9 @@ export async function launchInteractiveSubagent(
 	const launchEntryCount = existsSync(prepared.subagentSessionFile)
 		? getEntryCount(prepared.subagentSessionFile)
 		: 0;
-	const command = `${cdPrefix}${envPrefix}${parts.join(" ")}; printf '__SUBAGENT_DONE_'${exitStatusVar()}'__\n' | tee ${shellEscape(doneSentinelFile)}`;
+	const sentinelPath = shellEscape(doneSentinelFile);
+	const exitVar = exitStatusVar();
+	const command = `trap 'printf "__SUBAGENT_DONE_${exitVar}__\\n" | tee ${sentinelPath}' EXIT; ${cdPrefix}${envPrefix}${parts.join(" ")}`;
 	sendShellCommand(surface, command);
 	if (!existsSync(prepared.subagentSessionFile)) {
 		await writeSubagentLaunchMetadataEntryWhenReady(prepared.subagentSessionFile, launchMetadata);

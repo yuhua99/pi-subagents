@@ -76,8 +76,12 @@ export function filterToolNames(
 export function shouldRegisterSubagentDone(
 	autoExit: boolean,
 	deniedTools: string[],
+	isInteractive = false,
 ): boolean {
-	return !autoExit && !deniedTools.includes("subagent_done");
+	if (deniedTools.includes("subagent_done")) return false;
+	if (autoExit) return false;
+	if (isInteractive) return false;
+	return true;
 }
 
 type ToolControlAPI = Pick<
@@ -153,6 +157,7 @@ export default function (pi: ExtensionAPI) {
 			};
 
 	const autoExit = process.env.PI_SUBAGENT_AUTO_EXIT === "1";
+	const isInteractive = !!process.env.PI_SUBAGENT_SURFACE;
 	let toolNames: string[] = [];
 	let denied: string[] = getDeniedToolNames(autoExit);
 	let expanded = false;
@@ -345,14 +350,18 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
-	pi.registerTool({
-		name: "caller_ping",
-		label: "Caller Ping",
-		description:
-			"Ask the launching chat for help, send your message there, then close this helper session. " +
-			"The launching chat can later send follow-up instructions to continue this helper.",
-		parameters: callerPingParams,
-		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+	// caller_ping is registered for most agents as an escape hatch.
+	// Only interactive agents with autoExit: false don't get it —
+	// the operator is in the pane and can handle things directly.
+	if (!isInteractive || autoExit) {
+		pi.registerTool({
+			name: "caller_ping",
+			label: "Caller Ping",
+			description:
+				"Ask the launching chat for help, send your message there, then close this helper session. " +
+				"The launching chat can later send follow-up instructions to continue this helper.",
+			parameters: callerPingParams,
+			async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
 			const sessionFile = process.env.PI_SUBAGENT_SESSION;
 			if (!sessionFile) {
 				throw new Error(
@@ -376,8 +385,9 @@ export default function (pi: ExtensionAPI) {
 			};
 		},
 	});
+}
 
-	if (shouldRegisterSubagentDone(autoExit, denied)) {
+	if (shouldRegisterSubagentDone(autoExit, denied, isInteractive)) {
 		pi.registerTool({
 			name: "subagent_done",
 			label: "Subagent Done",

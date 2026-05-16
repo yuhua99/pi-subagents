@@ -16,6 +16,8 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { LIVE_TEST_MODEL } from "./live-test-guard.mjs";
 
+const piBin = process.env.PI_E2E_PI_BIN ?? "pi";
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, "..");
 const extensionSource = join(repoRoot, "src", "index.ts");
@@ -25,10 +27,8 @@ const configDir = join(tmpRoot, "agent");
 const outputFile = join(tmpRoot, "active-tools.json");
 const globalExtensionsDir = join(configDir, "extensions");
 const extensionFile = join(globalExtensionsDir, "live-e2e-deny-tools.ts");
-const envConfigDir = process.env.PI_CODING_AGENT_DIR;
-const sourceConfigDir = envConfigDir && existsSync(join(envConfigDir, "auth.json"))
-  ? envConfigDir
-  : join(homedir(), ".pi", "agent");
+// Always source from the real user config.
+const sourceConfigDir = join(homedir(), ".pi", "agent");
 const keepTmp = process.env.PI_SUBAGENT_KEEP_E2E_TMP === "1";
 const prompt = [
   "The subagent tool is available in this session.",
@@ -47,7 +47,7 @@ for (const name of ["auth.json", "settings.json", "models.json", "mcp.json"]) {
 }
 writeFileSync(
   join(configDir, "agents", "live-e2e-deny.md"),
-  `---\nname: live-e2e-deny\ndescription: Live deny-tools smoke test agent.\nthinking: off\nauto-exit: true\nmode: background\nblocking: true\nspawning: false\nextensions: ${extensionFile}\ndeny-tools: e2e_probe_tool\n---\n\nReply with exactly \`LIVE_DENY_CHILD_OK\`.`,
+  `---\nname: live-e2e-deny\ndescription: Live deny-tools smoke test agent.\nthinking: off\nauto-exit: true\nmode: background\nasync: false\nspawning: false\nextensions: ${extensionFile}\ndeny-tools: e2e_probe_tool\n---\n\nReply with exactly \`LIVE_DENY_CHILD_OK\`.`,
   "utf8",
 );
 writeFileSync(
@@ -134,7 +134,7 @@ function getAssistantTexts(events) {
 }
 
 function getToolResult(events, toolName) {
-  return events.find(
+  return events.findLast(
     (event) =>
       event.type === "message" &&
       event.message?.role === "toolResult" &&
@@ -154,7 +154,7 @@ function getParentEvents() {
 
 try {
   execFileSync(
-    "pi",
+    piBin,
     [
       "-p",
       "--model",
@@ -179,6 +179,7 @@ try {
         PI_SUBAGENT_NAME: "",
         PI_SUBAGENT_AUTO_EXIT: "",
         PI_DENY_TOOLS: "",
+        PI_SUBAGENT_PI_COMMAND: piBin,
         PI_ARTIFACT_PROJECT_ROOT: "",
       },
     },
@@ -196,7 +197,7 @@ try {
   if (!subagentResult) throw new Error("Parent did not emit a subagent tool result.");
   const details = subagentResult.details ?? {};
   if (details.status !== "completed") throw new Error(`Expected completed status, got ${details.status ?? "missing"}.`);
-  if (details.blocking !== true) throw new Error(`Expected blocking true, got ${details.blocking ?? "missing"}.`);
+  if (details.async !== false) throw new Error(`Expected async false, got ${details.async ?? "missing"}.`);
   if (!details.sessionFile || !existsSync(details.sessionFile)) throw new Error("Missing child sessionFile.");
 
   const childEvents = parseJsonl(details.sessionFile);
