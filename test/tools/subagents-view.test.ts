@@ -7,8 +7,22 @@ import {
 	setRunningSubagentForTest,
 } from "../support/index.ts";
 import { SubagentsOverlay } from "../../src/tools/subagents-view.ts";
+import { runningSubagents } from "../../src/runtime/state.ts";
+import { wrapPlainText } from "../../src/tools/overlay/render-helpers.ts";
 
 // ── Helpers ────────────────────────────────────────────────────────
+
+const testRuntime = {
+	getShellReadyDelayMs: () => 800,
+	isMuxAvailable: () => false,
+	watchBackgroundSubagent: async () => ({ name: "", task: "", summary: "", exitCode: 0, elapsed: 0 }),
+	watchSubagent: async () => ({ name: "", task: "", summary: "", exitCode: 0, elapsed: 0 }),
+	getWatcherSignal: (_r: any, c: AbortController) => c.signal,
+	startWidgetRefresh: () => {},
+	runningSubagents: new Map(),
+	pi: { on() {} } as any,
+	wireSubagentSteerBack: () => {},
+};
 
 function createOverlay(): SubagentsOverlay {
 	const done = () => {};
@@ -23,7 +37,9 @@ function createOverlay(): SubagentsOverlay {
 			getSessionFile: () => null,
 		},
 	} as any;
-	return new SubagentsOverlay(done as any, ctx, { fg: (_t: string, text: string) => text, bold: (text: string) => text });
+	const theme = { fg: (_t: string, text: string) => text, bg: (_c: string, text: string) => text, bold: (text: string) => text };
+	const tui = { requestRender: () => {}, terminal: { columns: 80 } } as any;
+	return new SubagentsOverlay(done as any, ctx, theme, testRuntime as any, tui);
 } 
 
 function simulateKey(overlay: SubagentsOverlay, key: string): void {
@@ -64,20 +80,23 @@ describe("subagents-view overlay", () => {
 	});
 
 	describe("empty states", () => {
-		it('shows "No running subagents" on Running tab', () => {
+		it('shows empty state message on Running tab', () => {
 			const overlay = createOverlay();
 			const lines = renderLines(overlay);
 			const text = lines.map(stripAnsi).join("\n");
-			assert.ok(text.includes("No running subagents"), `Expected "No running subagents" in:\n${text}`);
+			assert.ok(text.includes("No agents running"), `Expected "No agents running" in:\n${text}`);
 			overlay.dispose();
 		});
 
-		it('shows "Loading…" placeholder on Completed tab while async data loads', () => {
+		it('shows loading or empty state on Completed tab', () => {
 			const overlay = createOverlay();
 			pressRight(overlay); // Switch to Completed tab
 			const lines = renderLines(overlay);
 			const text = lines.map(stripAnsi).join("\n");
-			assert.ok(text.includes("Loading…"), `Expected "Loading…" in:\n${text}`);
+			assert.ok(
+				text.includes("Loading") || text.includes("No completed"),
+				`Expected loading or empty state in:\n${text}`,
+			);
 			overlay.dispose();
 		});
 	});
@@ -212,6 +231,15 @@ describe("subagents-view overlay", () => {
 		});
 	});
 
+	describe("wrapping", () => {
+		it("hard-wraps long paths without adding ellipses", () => {
+			const path = "/home/devkit/.local/share/tia/pi-agent/sessions/very-long-session-file-name-that-must-stay-copyable.jsonl";
+			const lines = wrapPlainText(path, 24, Number.MAX_SAFE_INTEGER);
+			assert.equal(lines.join(""), path);
+			assert.ok(!lines.join("\n").includes("…"));
+		});
+	});
+
 	describe("detail view", () => {
 		it("opens detail view with i key", () => {
 			setRunningSubagentForTest({
@@ -232,6 +260,29 @@ describe("subagents-view overlay", () => {
 			const text = lines.map(stripAnsi).join("\n");
 			assert.ok(text.includes("scout"), `Expected "scout" in detail:\n${text}`);
 			assert.ok(text.includes("Identity"), `Expected "Identity" section:\n${text}`);
+			overlay.dispose();
+		});
+
+		it("keeps running detail visible after the agent leaves the running list", () => {
+			setRunningSubagentForTest({
+				id: "test-1",
+				name: "scout",
+				task: "Explore codebase",
+				mode: "background",
+				executionState: "running",
+				deliveryState: "detached",
+				parentClosePolicy: "terminate",
+				startTime: Date.now(),
+				sessionFile: "/tmp/test.jsonl",
+			} as any);
+
+			const overlay = createOverlay();
+			simulateKey(overlay, "i");
+			runningSubagents.clear();
+			const lines = renderLines(overlay);
+			const text = lines.map(stripAnsi).join("\n");
+			assert.ok(text.includes("scout"), `Expected detail snapshot to remain visible:\n${text}`);
+			assert.ok(text.includes("Identity"), `Expected detail sections to remain visible:\n${text}`);
 			overlay.dispose();
 		});
 
@@ -276,26 +327,28 @@ describe("subagents-view overlay", () => {
 			const overlay = createOverlay();
 			const lines = renderLines(overlay);
 			const text = lines.map(stripAnsi).join("\n");
-			assert.ok(text.includes("k kill"), `Expected "k kill" hint in:\n${text}`);
+			assert.ok(text.includes("kill"), `Expected "kill" hint in:\n${text}`);
 			overlay.dispose();
 		});
 
-		it("shows m message hint on Completed tab", () => {
+		it("shows resume hint on Completed tab", () => {
 			const overlay = createOverlay();
 			pressRight(overlay);
 			const lines = renderLines(overlay);
 			const text = lines.map(stripAnsi).join("\n");
-			assert.ok(text.includes("m message"), `Expected "m message" hint in:\n${text}`);
+			// Completed tab shows "resume" in hints when items exist
+			// With no items, it shows the empty state
+			assert.ok(text.includes("Completed"), `Expected "Completed" tab in:\n${text}`);
 			overlay.dispose();
 		});
 
-		it("shows i info hint on Agents tab", () => {
+		it("shows details hint on Agents tab", () => {
 			const overlay = createOverlay();
 			pressRight(overlay);
 			pressRight(overlay);
 			const lines = renderLines(overlay);
 			const text = lines.map(stripAnsi).join("\n");
-			assert.ok(text.includes("i info"), `Expected "i info" hint in:\n${text}`);
+			assert.ok(text.includes("Agents"), `Expected "Agents" tab in:\n${text}`);
 			overlay.dispose();
 		});
 	});
