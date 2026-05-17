@@ -31,11 +31,11 @@ import { fileURLToPath } from "node:url";
 
 // Find the extension source and repo root from this script's location
 const __dirname = dirname(fileURLToPath(import.meta.url));
-export const repoRoot = resolve(__dirname, "..");
-export const extensionSource = join(repoRoot, "src", "index.ts");
+const repoRoot = resolve(__dirname, "..");
+const extensionSource = join(repoRoot, "src", "index.ts");
 
 // Default live test model
-export const LIVE_TEST_MODEL = (() => {
+const LIVE_TEST_MODEL = (() => {
   const model = process.env.PI_SUBAGENT_LIVE_MODEL;
   if (!model) throw new Error("PI_SUBAGENT_LIVE_MODEL must be set to run frontmatter live tests");
   return model;
@@ -292,7 +292,7 @@ export function listJsonlFiles(dir) {
 /**
  * Find the parent session file that contains the given marker text in user messages.
  */
-export function findParentSession(sessionDir, marker) {
+function findParentSession(sessionDir, marker) {
   for (const file of listJsonlFiles(sessionDir)) {
     const events = parseJsonl(file);
     const userText = getUserText(events);
@@ -349,7 +349,7 @@ export function getSessionHeader(events) {
  * Get subagent tool result details by agent name.
  * Handles both individual and batch result formats.
  */
-export function getSubagentResultByAgent(events, agentName) {
+function getSubagentResultByAgent(events, agentName) {
   const results = getToolResults(events, "subagent");
   for (const r of results) {
     const d = r.details ?? {};
@@ -387,7 +387,7 @@ export function getAllSubagentChildren(events) {
 /**
  * Assert that a marker string appears in assistant texts of the given events.
  */
-export function assertAssistantContains(events, marker, label) {
+function assertAssistantContains(events, marker, label) {
   const texts = getAssistantTexts(events);
   if (!texts.some((t) => t.includes(marker))) {
     throw new Error(`${label}: expected assistant to contain "${marker}", got: ${JSON.stringify(texts)}`);

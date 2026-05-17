@@ -22,7 +22,7 @@ export interface SummaryCandidateEventData {
 	tokens?: number;
 }
 
-export interface ForkEntryData {
+interface ForkEntryData {
 	/** Child session file path that the fork will produce. */
 	childSessionFile: string;
 	/** Parent session entry id at which the fork boundary is set. */

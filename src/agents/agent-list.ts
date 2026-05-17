@@ -1,7 +1,7 @@
 import type { ResolvedAgentDefinition } from "./definitions.ts";
 import { getEffectiveAgentDefinitions } from "./definitions.ts";
 
-export type SubagentSessionMode = "standalone" | "lineage-only" | "fork";
+type SubagentSessionMode = "standalone" | "lineage-only" | "fork";
 
 export interface AgentListEntry {
 	name: string;

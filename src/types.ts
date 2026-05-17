@@ -114,7 +114,7 @@ export interface StartedSubagentToolDetails {
 	autoExit?: boolean;
 }
 
-export interface ResumeToolDetails extends StartedSubagentToolDetails {
+interface ResumeToolDetails extends StartedSubagentToolDetails {
 	sessionFile?: string;
 }
 

@@ -1,7 +1,7 @@
 import { truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
 import type { Theme } from "./render-types.ts";
 
-export function padToWidth(text: string, width: number): string {
+function padToWidth(text: string, width: number): string {
 	return `${text}${" ".repeat(Math.max(0, width - visibleWidth(text)))}`;
 }
 

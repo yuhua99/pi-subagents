@@ -93,7 +93,7 @@ function extractSummary(
 			"",
 		);
 }
-export function appendExpandableLines(
+function appendExpandableLines(
 	lines: string[],
 	body: string,
 	options: RenderOptions,

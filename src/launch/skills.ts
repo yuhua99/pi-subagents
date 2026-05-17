@@ -7,7 +7,7 @@ import {
 } from "@mariozechner/pi-coding-agent";
 import { getAgentConfigDir } from "../agents/definitions.ts";
 
-export type SkillAvailability =
+type SkillAvailability =
 	| { mode: "all" }
 	| { mode: "none" }
 	| { mode: "only"; names: string[]; skills: Skill[] };

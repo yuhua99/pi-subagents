@@ -57,12 +57,6 @@ function parseCmuxJson(value: string): unknown | null {
 	}
 }
 
-export function parseCmuxFocusedSnapshotFromJson(
-	value: string,
-): CmuxFocusSnapshot | null {
-	return parseCmuxFocusedSnapshot(parseCmuxJson(value));
-}
-
 function parseCmuxCallerSnapshot(value: unknown): CmuxFocusSnapshot | null {
 	if (!value || typeof value !== "object") return null;
 
@@ -124,13 +118,6 @@ function parseCmuxPaneRefForSurface(
 	}
 
 	return null;
-}
-
-export function parseCmuxPaneRefForSurfaceFromJson(
-	value: string,
-	surface: string,
-): string | null {
-	return parseCmuxPaneRefForSurface(parseCmuxJson(value), surface);
 }
 
 function readCmux(args: string[]): string | null {

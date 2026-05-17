@@ -28,7 +28,7 @@ function withDefinedTokens(
  * Interpret an `.exit` sidecar payload. Centralized so both
  * consumeSubagentExitSignal and pollForExit decode the same way.
  */
-export function interpretExitSidecar(data: any): PollResult {
+function interpretExitSidecar(data: any): PollResult {
 	const tokens =
 		typeof data?.outputTokens === "number" ? data.outputTokens : undefined;
 	if (data?.type === "ping") {

@@ -49,7 +49,7 @@ export interface DetailField {
 	value: string;
 }
 
-export type ViewState =
+type ViewState =
 	| { kind: "list" }
 	| { kind: "detail"; item: OverlayItem; scroll: number }
 	| { kind: "editor"; itemIndex: number };
