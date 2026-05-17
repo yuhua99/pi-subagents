@@ -4,7 +4,7 @@ import {
 	SettingsManager,
 	stripFrontmatter,
 	type Skill,
-} from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
 import { getAgentConfigDir } from "../agents/definitions.ts";
 
 type SkillAvailability =

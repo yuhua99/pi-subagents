@@ -1,5 +1,5 @@
-import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { Editor, matchesKey, Key, type Component, type EditorTheme } from "@mariozechner/pi-tui";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { Editor, matchesKey, Key, type Component, type EditorTheme } from "@earendil-works/pi-tui";
 import { completedSubagentResults } from "../../runtime/state.ts";
 import { resumeSubagentSession, type ResumeServiceRuntime } from "../../runtime/resume-service.ts";
 import type { RunningSubagent, SubagentResult } from "../../types.ts";

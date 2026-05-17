@@ -1,4 +1,4 @@
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { launchBackgroundSubagent as launchBackgroundSubagentWithRuntime, type BackgroundLaunchRuntime } from "../launch/background.ts";
 import { cleanupNoSessionSessionFile } from "../launch/prep.ts";
 import { watchBackgroundSubagent as watchBackgroundSubagentWithRuntime, type BackgroundWatchRuntime } from "./background-watch.ts";

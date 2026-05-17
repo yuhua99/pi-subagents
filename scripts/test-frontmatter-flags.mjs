@@ -31,7 +31,7 @@ const extFile = join(ctx.extensionsDir, "flags-probe.ts");
 
 writeFileSync(
   extFile,
-  `import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+  `import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";

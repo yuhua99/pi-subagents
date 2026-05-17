@@ -6,7 +6,7 @@
 
 import { existsSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	findLatestAssistantError,
 	shouldAutoExitOnAgentEnd,
@@ -159,8 +159,8 @@ export function installDeniedToolGuards(
 }
 
 export default function (pi: ExtensionAPI) {
-	const tui = optionalRequire("@mariozechner/pi-tui") as
-		| typeof import("@mariozechner/pi-tui")
+	const tui = optionalRequire("@earendil-works/pi-tui") as
+		| typeof import("@earendil-works/pi-tui")
 		| null;
 	const typebox = optionalRequire("typebox") as typeof import("typebox") | null;
 	const Box = tui?.Box;

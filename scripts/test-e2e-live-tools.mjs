@@ -71,7 +71,7 @@ writeAgent("live-e2e-tools-read", "tools: read");
 
 writeFileSync(
   extensionFile,
-  `import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+  `import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";

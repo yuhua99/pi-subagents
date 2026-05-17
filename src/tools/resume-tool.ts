@@ -1,5 +1,5 @@
-import type { AgentToolResult, ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { Text } from "@mariozechner/pi-tui";
+import type { AgentToolResult, ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import type { RunningSubagent, SubagentResult } from "../types.ts";
 import { readSubagentLaunchMetadata } from "../session/session-files.ts";

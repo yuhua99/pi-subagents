@@ -1,7 +1,7 @@
 import type {
 	ExtensionAPI,
 	ExtensionContext,
-} from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
 import type { AgentDefaults } from "./agents/definitions.ts";
 import type { AgentListEntry } from "./agents/agent-list.ts";
 import {

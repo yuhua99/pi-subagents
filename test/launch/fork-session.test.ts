@@ -200,13 +200,13 @@ describe("fork session launch behavior", () => {
 			isMissingOptionalDependencyForTest(
 				Object.assign(
 					new Error(
-						"Cannot find module '@mariozechner/pi-tui' from '/tmp/ext.ts'",
+						"Cannot find module '@earendil-works/pi-tui' from '/tmp/ext.ts'",
 					),
 					{
 						code: "MODULE_NOT_FOUND",
 					},
 				),
-				"@mariozechner/pi-tui",
+				"@earendil-works/pi-tui",
 			),
 			true,
 		);
@@ -214,9 +214,9 @@ describe("fork session launch behavior", () => {
 			isMissingOptionalDependencyForTest(
 				{
 					message:
-						"Cannot find module '@mariozechner/pi-tui' from '/tmp/ext.ts'",
+						"Cannot find module '@earendil-works/pi-tui' from '/tmp/ext.ts'",
 				},
-				"@mariozechner/pi-tui",
+				"@earendil-works/pi-tui",
 			),
 			true,
 		);

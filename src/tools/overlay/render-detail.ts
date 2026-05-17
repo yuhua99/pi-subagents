@@ -1,4 +1,4 @@
-import { truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
+import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { DetailField, DetailSection, OverlayItem, Theme } from "./render-types.ts";
 import { fitLine, renderScrollbar, wrapPlainText } from "./render-helpers.ts";
 
