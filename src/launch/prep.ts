@@ -386,6 +386,16 @@ export function getBaseSubagentEnvVars(
 	if (sessionMode !== "standalone")
 		if (prepared.sessionFile) envVars.PI_SUBAGENT_PARENT_SESSION = prepared.sessionFile;
 	if (prepared.sessionTitle) envVars.PI_SUBAGENT_SESSION_TITLE = prepared.sessionTitle;
+	const forkReserveTokens = resolveForkOutputReserveTokens(prepared.agentDefs);
+	if (typeof forkReserveTokens === "number" && forkReserveTokens > 0) {
+		envVars.PI_SUBAGENT_FORK_RESERVE_TOKENS = String(forkReserveTokens);
+	}
+	if (process.env.PI_SUBAGENT_FORK_TRIM_DEBUG) {
+		envVars.PI_SUBAGENT_FORK_TRIM_DEBUG = process.env.PI_SUBAGENT_FORK_TRIM_DEBUG;
+	}
+	if (process.env.PI_SUBAGENT_FORK_TRIM_DEBUG_LOG) {
+		envVars.PI_SUBAGENT_FORK_TRIM_DEBUG_LOG = process.env.PI_SUBAGENT_FORK_TRIM_DEBUG_LOG;
+	}
 	envVars.PI_ARTIFACT_PROJECT_ROOT = getArtifactStorageRoot();
 	return envVars;
 }

@@ -1,5 +1,6 @@
 import "./session/session.test.ts";
 import "./session/exit-sidecar.test.ts";
+import "./session/trimmed-session/seed.test.ts";
 import "./tools/subagent-done.test.ts";
 import "./tools/message-renderers.test.ts";
 import "./artifacts/storage.test.ts";
@@ -7,6 +8,8 @@ import "./launch/config.test.ts";
 import "./agents/definitions-agent-list.test.ts";
 import "./runtime/launch-results.test.ts";
 import "./runtime/elapsed-format.test.ts";
+import "./runtime/child-context-trim.test.ts";
+import "./runtime/compaction-integration.test.ts";
 import "./agents/ambient-runtime-paths.test.ts";
 import "./launch/fork-session.test.ts";
 import "./runtime/wait.test.ts";

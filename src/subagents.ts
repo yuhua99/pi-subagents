@@ -77,6 +77,7 @@ import { registerSubagentResumeTool } from "./tools/resume-tool.ts";
 import { markInitialPromptLaunchComplete, registerSubagentCoreTools } from "./tools/subagent-tools.ts";
 import { traceSubagentLaunch } from "./launch/trace.ts";
 import { registerSubagentsView } from "./tools/subagents-view.ts";
+import { registerChildContextTrim } from "./runtime/child-context-trim.ts";
 export { markSubagentBatchBlocking as markSubagentBatchBlockingForTest } from "./runtime/state.ts";
 export { requestSubagentBatchStop as requestSubagentBatchStopForTest } from "./runtime/state.ts";
 export { getSubagentBatchStopMetadata as getSubagentBatchStopMetadataForTest } from "./runtime/state.ts";
@@ -436,4 +437,9 @@ Your most important job is synthesis: reading sub-agent outputs, understanding t
 		pi,
 		wireSubagentSteerBack,
 	});
+
+	// Child-side fork context trim. The handler is a no-op when the session
+	// has no inheritance-boundary marker (i.e. when this pi process is the
+	// parent or a non-fork session), so registering unconditionally is safe.
+	registerChildContextTrim(pi);
 }

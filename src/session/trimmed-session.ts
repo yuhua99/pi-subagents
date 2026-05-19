@@ -1,40 +1,54 @@
 /**
- * Fork session trimming.
+ * Fork session seeding.
  *
- * A forked child inherits a suffix of the parent session. The suffix must fit the
- * child model's context window, not the parent's. Pi stores cumulative input
- * checkpoints on assistant messages as usage.input + usage.cacheRead; trimming is
- * based only on those checkpoints. No tokenizer guesses are used here.
+ * Writes a child session file from a parent session. The child receives the
+ * latest "live" segment of the parent's messages — entries newer than the
+ * most recent zero-usage reset marker, and older than the launch tool-call
+ * that spawned this child.
+ *
+ * Crucially, this seed step does NOT enforce a token budget. The child's
+ * authoritative byte-budget trim runs at LLM call time inside the child's
+ * `context` event handler (see src/runtime/child-context-trim.ts), which is
+ * the only place where the child's tokenizer, model, and context window are
+ * locally and authoritatively known.
+ *
+ * What this step does:
+ *   - Cuts the parent prefix at the launch tool-call (so the child does not
+ *     re-see the very turn that spawned it).
+ *   - Skips entries before the most recent zero-usage reset marker. Zero
+ *     usage on an assistant message is a real signal that the entry was
+ *     written by a fork seed (or equivalent reset path) — keeping it would
+ *     confuse downstream consumers without adding information.
+ *   - Neutralizes tool-call and tool-result blocks so foreign session-local
+ *     identifiers do not leak into the child's pi runtime.
+ *   - Drops `subagent_roster` custom messages (they are re-injected by the
+ *     child extension on session_start with the child's own roster).
+ *   - Zeroes inherited assistant `usage` because the parent's usage values
+ *     are no longer accurate after trimming and the child must compute its
+ *     own from scratch.
  */
 
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
 export interface TrimmedForkSessionOptions {
-	/** The child model's total context window in tokens. */
+	/** The child model's total context window in tokens. Recorded for
+	 * downstream tooling but not used to enforce a budget here. */
 	childContextWindow: number;
-	/** Tokens to reserve for the child model's output. Defaults to 10_000. */
+	/** Tokens to reserve for the child model's output. Forwarded to the child
+	 * via env so the child handler enforces the same reserve. */
 	reserveTokens?: number;
-	/** Tool call id for the subagent launch that is creating this fork. */
+	/** Tool call id for the subagent launch that is creating this fork. The
+	 * spawning turn's tool call is excluded so the child does not see itself
+	 * being launched. */
 	launchToolCallId?: string;
 	/** Session title to write into the forked child session header. */
 	sessionName?: string;
 }
 
-const DEFAULT_RESERVE_TOKENS = 10_000;
-
 interface ParsedEntry {
 	line: string;
 	parsed: Record<string, unknown>;
-}
-
-interface TokenSegment {
-	entries: ParsedEntry[];
-	totalTokens: number;
-	/** Cumulative at the first successful assistant in this segment, so callers
-	 * can normalize totalTokens to segment-local values. Zero when the segment
-	 * starts at the beginning of the session (no prior resets). */
-	segmentBase: number;
 }
 
 function zeroUsage() {
@@ -48,12 +62,6 @@ function zeroUsage() {
 	};
 }
 
-function getCumulativeInputTokens(usage: Record<string, unknown>): number {
-	const input = typeof usage.input === "number" ? usage.input : 0;
-	const cacheRead = typeof usage.cacheRead === "number" ? usage.cacheRead : 0;
-	return input + cacheRead;
-}
-
 function readSessionEntries(sessionFile: string): ParsedEntry[] {
 	const content = readFileSync(sessionFile, "utf-8");
 	const entries: ParsedEntry[] = [];
@@ -63,7 +71,8 @@ function readSessionEntries(sessionFile: string): ParsedEntry[] {
 		try {
 			entries.push({ line: trimmed, parsed: JSON.parse(trimmed) });
 		} catch {
-			// Ignore malformed historical lines; Pi will report them if it loads the session directly.
+			// Ignore malformed historical lines; pi will report them if it loads
+			// the session directly.
 		}
 	}
 	return entries;
@@ -87,27 +96,27 @@ function getMessage(entry: ParsedEntry): Record<string, unknown> | undefined {
 	return entry.parsed.message as Record<string, unknown> | undefined;
 }
 
-function getAssistantUsage(
-	entry: ParsedEntry,
-): Record<string, unknown> | undefined {
+function isAssistantMessage(entry: ParsedEntry): boolean {
 	const msg = getMessage(entry);
-	if (msg?.role !== "assistant") return undefined;
-	const stopReason = msg.stopReason as string | undefined;
-	if (stopReason === "aborted" || stopReason === "error") return undefined;
-	return msg.usage as Record<string, unknown> | undefined;
+	return msg?.role === "assistant";
 }
 
-function hasSuccessfulAssistant(entry: ParsedEntry): boolean {
+function hasZeroUsage(entry: ParsedEntry): boolean {
 	const msg = getMessage(entry);
 	if (msg?.role !== "assistant") return false;
-	const stopReason = msg.stopReason as string | undefined;
-	return stopReason !== "aborted" && stopReason !== "error";
+	const usage = msg.usage as Record<string, unknown> | undefined;
+	if (!usage) return false;
+	const input = typeof usage.input === "number" ? usage.input : 0;
+	const cacheRead =
+		typeof usage.cacheRead === "number" ? usage.cacheRead : 0;
+	const totalTokens =
+		typeof usage.totalTokens === "number" ? usage.totalTokens : 0;
+	return input <= 0 && cacheRead <= 0 && totalTokens <= 0;
 }
 
 /**
- * Tool call content blocks can use different type strings depending on the
- * upstream API provider: "toolCall" (OpenAI), "toolUse" (Anthropic/Google),
- * or potentially other variants. Check both.
+ * Tool-call content blocks may use type "toolCall" (OpenAI) or "toolUse"
+ * (Anthropic / Google).
  */
 function isToolCallBlock(block: unknown): block is Record<string, unknown> {
 	if (!block || typeof block !== "object") return false;
@@ -137,166 +146,111 @@ function getEntriesBeforeLaunch(
 	return launchIndex < 0 ? entries : entries.slice(0, launchIndex);
 }
 
-function getLatestTokenSegment(
-	entries: ParsedEntry[],
-	parentSessionFile: string,
-): TokenSegment | undefined {
-	let sawAssistant = false;
-	let segmentStart = 0;
-	let totalTokens = 0;
-	// Cumulative at the first successful assistant in the current segment.
-	// Used to normalize totalTokens so it reflects only the token contribution
-	// of entries within the segment, not pre-segment content.
-	// Only meaningful when the segment starts after a reset boundary
-	// (segmentStart > 0); for the initial segment segmentBase stays 0.
-	let segmentBase = 0;
-	let foundSegmentStart = false;
-
-	for (let i = 0; i < entries.length; i++) {
-		const entry = entries[i];
-		if (!hasSuccessfulAssistant(entry)) continue;
-		sawAssistant = true;
-
-		const usage = getAssistantUsage(entry);
-		if (!usage) {
-			throw new Error(
-				`Cannot safely fork ${parentSessionFile}: assistant message is missing usage metadata. ` +
-					"Pi cannot compute a deterministic fork trim without per-turn token checkpoints.",
-			);
-		}
-
-		const tokens = getCumulativeInputTokens(usage);
-		if (tokens <= 0) {
-			// Forked sessions intentionally zero inherited assistant usage after trimming.
-			// Treat zero usage as a reset boundary so a nested fork can use later real
-			// child checkpoints without mixing them with inherited parent entries.
-			segmentStart = i + 1;
-			totalTokens = 0;
-			foundSegmentStart = false;
-			continue;
-		}
-
-		// NOTE: decreasing cumulative checkpoints (tokens < previousTokens) from
-		// context-pruning extensions (pi-context-prune, API-ext pruning) do NOT
-		// create segment boundaries. The entries are still in the session file and
-		// should be inherited by the child. Only zeroed checkpoint entries
-		// (nested-fork artifacts) are real segment boundaries.
-
-		// Record the base cumulative of the first assistant in the segment.
-		// This is the session-wide cumulative at the segment boundary, used to
-		// normalize subsequent totals to segment-local values.
-		if (!foundSegmentStart) {
-			segmentBase = tokens;
-			foundSegmentStart = true;
-		}
-
-		totalTokens = tokens;
-	}
-
-	if (!sawAssistant || totalTokens <= 0) return undefined;
-
-	// Only normalize when a reset (zero-usage or token-drop) created a segment
-	// boundary. For the initial unpruned segment, totalTokens stays session-wide
-	// so the budget comparison doesn't undercount pre-first-assistant entries.
-	// segmentBase must also be 0 in that case so findTrimStart doesn't
-	// normalize with a stale first-assistant checkpoint.
-	const hasReset = segmentStart > 0;
-	const segmentTokens = hasReset ? totalTokens - segmentBase : totalTokens;
-	return { entries: entries.slice(segmentStart), totalTokens: segmentTokens, segmentBase: hasReset ? segmentBase : 0 };
-}
-
 /**
- * Check if a toolCallId exists in any assistant entry at or after `fromIndex`.
+ * Returns the slice of entries starting AFTER the latest zero-usage assistant
+ * (so the child does not inherit pre-reset stale content), or the full input
+ * if no such marker exists.
  */
-function hasToolCallIdInRange(
-	entries: ParsedEntry[],
-	fromIndex: number,
-	toolCallId: string,
-): boolean {
-	for (let i = fromIndex; i < entries.length; i++) {
-		if (hasToolCallId(entries[i], toolCallId)) return true;
-	}
-	return false;
-}
-
-/**
- * Check if an entry is a toolResult with an orphaned tool call reference
- * (the tool call was excluded by the trim).
- */
-function isOrphanedToolResult(
-	entry: ParsedEntry,
-	entries: ParsedEntry[],
-	trimStart: number,
-): boolean {
-	if (entry.parsed.type !== "message") return false;
-	const msg = entry.parsed.message as Record<string, unknown> | undefined;
-	if (msg?.role !== "toolResult") return false;
-	const toolCallId = msg.toolCallId as string | undefined;
-	if (!toolCallId) return false;
-	// The tool call is orphaned if it doesn't appear in any entry at or after trimStart.
-	return !hasToolCallIdInRange(entries, trimStart, toolCallId);
-}
-
-function findTrimStart(
-	entries: ParsedEntry[],
-	totalTokens: number,
-	budget: number,
-	/**
-	 * Session-wide cumulative at the first assistant of this entry slice.
-	 * Subtracted from each assistant's cumulative to produce segment-local
-	 * token counts for the overflow comparison. Zero for segments with no
-	 * prior reset (the first assistant is at the beginning of the session).
-	 */
-	segmentBase = 0,
-): number {
-	const overflow = totalTokens - budget;
-	let previousAssistantTokens = 0;
-	let previousAssistantIndex = -1;
-
+function sliceLatestSegment(entries: ParsedEntry[]): ParsedEntry[] {
+	let lastResetIndex = -1;
 	for (let i = 0; i < entries.length; i++) {
-		const usage = getAssistantUsage(entries[i]);
-		if (!usage) continue;
-
-		// Normalize to segment-local: subtract the base cumulative so that
-		// the first assistant in the segment contributes 0 and subsequent
-		// assistants represent only the token growth within the segment.
-		const tokens = getCumulativeInputTokens(usage) - segmentBase;
-
-		if (previousAssistantTokens >= overflow) {
-			const start = previousAssistantIndex + 1;
-			// Skip orphaned tool results whose tool calls were excluded by the trim.
-			// The openai-responses API rejects conversations with tool results that
-			// reference non-existent tool call IDs.
-			let adjusted = start;
-			while (
-				adjusted < entries.length &&
-				isOrphanedToolResult(entries[adjusted], entries, start)
-			) {
-				adjusted++;
-			}
-			return adjusted;
+		if (isAssistantMessage(entries[i]) && hasZeroUsage(entries[i])) {
+			lastResetIndex = i;
 		}
-
-		previousAssistantTokens = tokens;
-		previousAssistantIndex = i;
 	}
-
-	return 0;
+	return lastResetIndex < 0 ? entries : entries.slice(lastResetIndex + 1);
 }
 
 /**
- * Neutralize tool call blocks in forked assistant messages to text placeholders.
+ * Returns toolCall ids declared by assistant entries in the kept slice.
+ */
+function collectKeptToolCallIds(entries: ParsedEntry[]): Set<string> {
+	const ids = new Set<string>();
+	for (const entry of entries) {
+		const msg = getMessage(entry);
+		if (msg?.role !== "assistant") continue;
+		const content = msg.content;
+		if (!Array.isArray(content)) continue;
+		for (const block of content) {
+			if (!isToolCallBlock(block)) continue;
+			const id = (block as Record<string, unknown>).id;
+			if (typeof id === "string") ids.add(id);
+		}
+	}
+	return ids;
+}
+
+/**
+ * Drop tool-result entries whose corresponding tool-call entry is not present
+ * in the kept slice. Defensive: shouldn't normally happen because we keep the
+ * whole latest segment, but guards against malformed parent sessions.
+ */
+function pruneOrphanedToolResults(entries: ParsedEntry[]): ParsedEntry[] {
+	const keptIds = collectKeptToolCallIds(entries);
+	return entries.filter((entry) => {
+		const msg = getMessage(entry);
+		if (msg?.role !== "toolResult") return true;
+		const id = msg.toolCallId;
+		if (typeof id !== "string") return true;
+		return keptIds.has(id);
+	});
+}
+
+/**
+ * Defense-in-depth: the parent-side memory ceiling.
  *
- * Forked children inherit the parent session's assistant messages verbatim,
- * including raw tool call IDs that belong to the parent's provider context.
- * These session-local identifiers have no place in the child session —
- * pi's internal tool call state management should never see foreign IDs from
- * a parent session that used a different provider, different model, or even
- * the same provider under a different runtime instance.
+ * The child's authoritative byte-budget trim runs in the child process, but
+ * the child must first load the seed file into memory. A pathological
+ * parent session (multiple megabytes of inlined file contents) could OOM the
+ * child process before its `context` handler can run. This ceiling caps the
+ * seed bytes at a generous limit so the child always boots cleanly.
  *
- * Replacing tool call blocks with simple text placeholders preserves the
- * semantic information (which tool was called, and the conversation flow)
- * without leaking provider-specific routing metadata across the fork boundary.
+ * The ceiling is bytes, not tokens. Bytes are what consume process memory.
+ *
+ * Configurable via PI_SUBAGENT_FORK_MAX_INHERITANCE_BYTES; default 8 MiB.
+ */
+const DEFAULT_MAX_INHERITANCE_BYTES = 8 * 1024 * 1024;
+
+function readMaxInheritanceBytes(): number {
+	const raw = process.env.PI_SUBAGENT_FORK_MAX_INHERITANCE_BYTES?.trim();
+	if (!raw) return DEFAULT_MAX_INHERITANCE_BYTES;
+	const parsed = Number.parseInt(raw, 10);
+	if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_MAX_INHERITANCE_BYTES;
+	return parsed;
+}
+
+function entryByteLen(entry: ParsedEntry): number {
+	// Use the raw line length plus 1 (for the trailing newline). Cheap and
+	// matches what gets written to disk.
+	return Buffer.byteLength(entry.line, "utf8") + 1;
+}
+
+/**
+ * If the kept slice exceeds the byte ceiling, drop oldest entries until the
+ * remaining bytes fit. Tool-call/tool-result pairing is preserved by the
+ * downstream pruneOrphanedToolResults pass — when a toolCall is dropped, its
+ * matching toolResult is automatically pruned because it becomes orphaned.
+ */
+function applyMemoryCeiling(entries: ParsedEntry[]): ParsedEntry[] {
+	const ceiling = readMaxInheritanceBytes();
+	const sizes = entries.map(entryByteLen);
+	let total = 0;
+	for (const s of sizes) total += s;
+	if (total <= ceiling) return entries;
+
+	let firstKept = 0;
+	while (total > ceiling && firstKept < entries.length) {
+		total -= sizes[firstKept];
+		firstKept += 1;
+	}
+	return entries.slice(firstKept);
+}
+
+/**
+ * Replace tool-call blocks with text placeholders. Tool-call IDs are
+ * session-local routing tokens that belong to the parent's provider context;
+ * they must not leak into the child session regardless of which provider
+ * either side uses.
  */
 function neutralizeToolCallBlocks(content: unknown[]): unknown[] {
 	if (!Array.isArray(content)) return content;
@@ -309,10 +263,7 @@ function neutralizeToolCallBlocks(content: unknown[]): unknown[] {
 		const b = block as Record<string, unknown>;
 		if (b.type === "toolCall" || b.type === "toolUse") {
 			const name = typeof b.name === "string" ? b.name : "unknown";
-			result.push({
-				type: "text",
-				text: `[tool call: ${name}]`,
-			});
+			result.push({ type: "text", text: `[tool call: ${name}]` });
 		} else {
 			result.push(block);
 		}
@@ -324,7 +275,10 @@ function serializeEntry(entry: ParsedEntry): string {
 	const parsedClone = structuredClone(entry.parsed);
 
 	if (parsedClone.type !== "message") {
-		(parsedClone as any).message = {
+		// Non-message entries (e.g. label, model_change) get a stub message so
+		// the compiled renderer's expectations are satisfied without leaking
+		// stale token counts.
+		(parsedClone as Record<string, unknown>).message = {
 			role: "custom",
 			content: [],
 			usage: zeroUsage(),
@@ -335,24 +289,22 @@ function serializeEntry(entry: ParsedEntry): string {
 	const msg = parsedClone.message as Record<string, unknown> | undefined;
 	if (!msg) return JSON.stringify(parsedClone);
 
-	// Parent usage is no longer valid after trimming. Keep a zero stub because the
-	// compiled renderer expects message.usage.input on copied entries.
+	// Parent usage is no longer valid after trimming. Zero it so the child
+	// recomputes from scratch and so downstream consumers cannot mistake the
+	// stale value for live data.
 	msg.usage = zeroUsage();
-	// Neutralize inherited tool call blocks from the parent session.
-	// Tool call IDs are session-local routing tokens that belong to the
-	// parent's provider context. They must not leak into the child session,
-	// regardless of which provider either side uses.
+
 	if (msg.role === "assistant" && Array.isArray(msg.content)) {
 		msg.content = neutralizeToolCallBlocks(msg.content);
 	}
-	// Neutralize inherited tool results: strip the toolCallId and convert to
-	// a user message. The result text is preserved — the model sees the tool
-	// output in context — but the foreign tool call metadata is removed so
-	// pi never tries to resolve parent session IDs against child session state.
+
+	// Tool-result rows are converted to user messages so the child's pi
+	// runtime never tries to resolve foreign tool-call IDs.
 	if (msg.role === "toolResult" && Array.isArray(msg.content)) {
 		msg.role = "user";
 		delete msg.toolCallId;
 	}
+
 	parsedClone.message = msg;
 	return JSON.stringify(parsedClone);
 }
@@ -365,17 +317,22 @@ function writeChildSession(
 	sessionName?: string,
 ): void {
 	mkdirSync(dirname(childSessionFile), { recursive: true });
-	const lines = [buildSessionHeader(headerEntry, parentSessionFile, sessionName)];
+	const lines = [
+		buildSessionHeader(headerEntry, parentSessionFile, sessionName),
+	];
 	for (const entry of entries) {
-		if (entry.parsed.type !== "session") {
-			// Children never receive ambient awareness (skipped in session_start for
-			// parentSession sessions). Drop the roster to avoid wasting context window.
-			if (
-				entry.parsed.type === "custom_message" &&
-				(entry.parsed as Record<string, unknown>).customType === "subagent_roster"
-			) continue;
-			lines.push(serializeEntry(entry));
+		if (entry.parsed.type === "session") continue;
+		// Children never receive ambient awareness (skipped in session_start
+		// for parentSession sessions). Drop the inherited roster so the child's
+		// extension can re-emit a fresh roster.
+		if (
+			entry.parsed.type === "custom_message" &&
+			(entry.parsed as Record<string, unknown>).customType ===
+				"subagent_roster"
+		) {
+			continue;
 		}
+		lines.push(serializeEntry(entry));
 	}
 	writeFileSync(childSessionFile, `${lines.join("\n")}\n`, "utf-8");
 }
@@ -387,34 +344,37 @@ export function writeTrimmedForkSession(
 ): void {
 	const entries = readSessionEntries(parentSessionFile);
 	const headerEntry = entries.find((entry) => entry.parsed.type === "session");
-	if (!headerEntry)
+	if (!headerEntry) {
 		throw new Error(`No session header found in ${parentSessionFile}`);
-
-	const reserveTokens = options.reserveTokens ?? DEFAULT_RESERVE_TOKENS;
-	const budget = options.childContextWindow - reserveTokens;
-	if (budget <= 0) {
-		writeChildSession([], headerEntry, childSessionFile, parentSessionFile, options.sessionName);
-		return;
 	}
 
-	const entriesBeforeLaunch = getEntriesBeforeLaunch(
+	const beforeLaunch = getEntriesBeforeLaunch(
 		entries,
 		options.launchToolCallId,
 	);
-	const segment = getLatestTokenSegment(entriesBeforeLaunch, parentSessionFile);
-	if (!segment) {
-		writeChildSession([], headerEntry, childSessionFile, parentSessionFile, options.sessionName);
+	const segment = sliceLatestSegment(beforeLaunch);
+
+	// If the latest segment contains no successful assistant turn, there is no
+	// meaningful context to fork. Write a header-only child session so the
+	// child boots cleanly. (Preserves prior behavior; downstream tooling
+	// relies on header-only output in this edge case.)
+	const hasAssistant = segment.some(isAssistantMessage);
+	if (!hasAssistant) {
+		writeChildSession(
+			[],
+			headerEntry,
+			childSessionFile,
+			parentSessionFile,
+			options.sessionName,
+		);
 		return;
 	}
 
-	const entriesToKeep =
-		segment.totalTokens <= budget
-			? segment.entries
-			: segment.entries.slice(
-					findTrimStart(segment.entries, segment.totalTokens, budget, segment.segmentBase),
-				);
+	const capped = applyMemoryCeiling(segment);
+	const cleaned = pruneOrphanedToolResults(capped);
+
 	writeChildSession(
-		entriesToKeep,
+		cleaned,
 		headerEntry,
 		childSessionFile,
 		parentSessionFile,
