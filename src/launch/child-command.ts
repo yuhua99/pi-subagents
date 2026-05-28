@@ -92,5 +92,7 @@ export function getSubagentChildProcessEnv(
 	_invocation: PiInvocation,
 	envVars: Record<string, string>,
 ): NodeJS.ProcessEnv {
-	return { ...process.env, ...envVars };
+	const env = { ...process.env, ...envVars };
+	delete env.PI_ORCHESTRATOR_MODE;
+	return env;
 }
